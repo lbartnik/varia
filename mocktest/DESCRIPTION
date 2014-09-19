@@ -1,0 +1,9 @@
+Package: mocktest
+Type: Package
+Title: Tests testthat::with_mock
+Version: 1.0
+Date: 2014-09-19
+Author: Me
+Maintainer: Me
+Description: Look at the title line.
+License: GPLv2
