@@ -1,0 +1,14 @@
+Package: sourcerer
+Type: Package
+Title: Helps in tracing data investigations.
+Version: 0.1
+Date: 2014-10-19
+Author: Lukasz A. Bartnik
+Maintainer: Lukasz A. Bartnik <l.bartnik@gmail.com>
+Description: Helps tracing how a given data set has been changed
+    since its origin.
+License: GPLv2
+Roxygen: list(wrap = FALSE)
+Imports: 
+    dplyr
+Suggests: testthat
