@@ -11,7 +11,11 @@ test_that("single call works", {
   expect_that(r$x, equals(6.84333, tolerance = .001))
 })
 
+
 test_that("complex call works", {
+  if (!require(dplyr, quietly = T, warn.conflicts = F))
+    skip('dplyr absent')
+  
   s <- sourcerer('../../tmp-work/iris.rds')
   r <-
     s %>%
