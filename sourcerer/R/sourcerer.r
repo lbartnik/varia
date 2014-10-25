@@ -40,3 +40,16 @@ do.sourcerer <- function (.data, ...)
   ret
 }
 
+
+# #' @export
+# select_.data.frame <- function(.data, ..., .dots) {
+#   dots <- lazyeval::all_dots(.dots, ...)
+#   vars <- select_vars_(names(.data), dots)
+#   select_impl(.data, vars)
+# }
+select_.sourcerer <- function (...)
+{
+  # TODO ???
+}
+
+
