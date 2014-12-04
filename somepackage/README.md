@@ -1,3 +1,28 @@
+Gramatyka przetwarzania
+=======================
+
+Najważniejsza jest tutaj spójna gramatyka przetwarzania: tzn. nie chodzi
+o zestaw poręcznych funkcji ale o spójną logicznie wizję przetwarzania
+danych, podobnie do DSL (domain-specific language), który dla grafiki
+wprowadził pakiet ggplot2.
+
+Pojęcia w tej odsłonie:
+
+* źródło danych, w postaci zbioru obiektów (mogą być takie same, np.
+  zestawy danych dla różnych budynków, lub zupełnie różne, np. zbiory
+  danych z różnych dziedzin, które chcemy porównać prezentując sposób
+  działa modeli liniowych); ważne jest to, że to użytkownik zechciał
+  umieścić je w jednej kolekcji
+* kolekcja = zbiór obiektów pod jedną nazwą
+* przetwarzanie - oddzielny potok przetwarzania, który może być wykonany
+  w dowolnym procesie R, a zatem wszystkie informacje muszą być przekazane
+  do tego procesu, a odczyt i zapis danych musi być w nim możliwy
+* zapis (odczyt) danych - w tej chwili oparty o system plików i usługę
+  synchronizacji, np. Dropbox; musi być zaimplementowany tak, by unikać
+  konfliktów dostępu (przede wszystkim konfliktów zapisu, czyli nazw plików)
+
+
+
 Kolekcja
 ========
 
