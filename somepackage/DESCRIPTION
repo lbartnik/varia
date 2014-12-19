@@ -8,5 +8,8 @@ Maintainer: Lukasz A. Bartnik <l.bartnik@gmail.com>
 Description: Prototype work.
 Imports:
     assertthat,
-    digest
+    digest,
+    dplyr,
+    plyr,
+    lazyeval
 License: GPLv2

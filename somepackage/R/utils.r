@@ -4,3 +4,6 @@ see <- function (..., quiet = F) {
   if (!r && !quiet) warning(attr(r, 'msg'), call. = F)
   r
 }
+
+`%nin%` <- function (x, y) (!(x %in% y))
+
