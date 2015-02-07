@@ -27,7 +27,7 @@ package <- function (what, frmls) {
   # expression can be passed down the call stack
   x <- substitute(what)
   e <- parent.frame()
-  package_(lazy_(x, e))
+  package_(lazy_(x, e), frmls)
 }
 
 
@@ -82,8 +82,10 @@ package_ <- function (lazy_obj, frmls) {
     deps <- get_deps(as.call(c(expr)), lazy_obj$env)
     if (missing(frmls)) {
       search <- if (is_colexpr(expr)) deparse(expr[[3]]) else deparse(expr)
-      # TODO if deps work this should work too but maybe a check here?
-      frmls <- formals(get(search, envir = lazy_obj$env))
+      # user provided object might not be define at all
+      fun <- tryCatch(get(search, envir = lazy_obj$env),
+                      error = function(e)stop(paste('could not find', search), call. = F))
+      frmls <- formals(fun)
     }
     obj  <- expr
     user <- NULL
@@ -201,6 +203,10 @@ get_deps <- function (expr, env = parent.frame()) {
     # search for the function in the environment enclosing the expression
     tmpf <- descr_fun(name, env)
     
+    # function not found
+    if (is.na(tmpf$lib)) next
+    
+    # if global search for more dependencies
     if (tmpf$lib == 'global') {
       fun <- get(name, envir = env) # it has to be accessible if descr_fun returned 'global'
       more <- (
@@ -257,7 +263,7 @@ descr_fun <- function (fun_name, env = globalenv()) {
   # error
   if (!is.function(f)) {
     warning('could not find function: ', fun_name)
-    return(c(lib = NA, fun = name))
+    return(list(lib = NA, fun = name))
   }
   
   # primitive

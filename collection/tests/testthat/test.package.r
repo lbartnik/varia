@@ -179,3 +179,21 @@ test_that('complex pipe', {
 })
 
 
+test_that("with formals", {
+  pkg <- package(summary, alist(x=))
+  check_basic_pkg(pkg, 1, 1)
+  expect_equal(pkg$global$name, '__entry__')
+  expect_equal(pkg$global$fun[[1]], function(x)summary(x))
+})
+
+
+test_that("errors & warnings", {
+  err <- 'do not know how to handle lazy expression'
+  expect_error(package(summary(iris)), err)
+  expect_error(package(summary(x)), err)
+  
+  expect_error(suppressWarnings(package(x)), 'could not find x') # gives error and a warning
+  
+  expect_warning(package(function(x)zzz(x)), 'could not find function: zzz')
+})
+
