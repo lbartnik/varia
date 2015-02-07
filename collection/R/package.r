@@ -37,59 +37,80 @@ package <- function (what) {
 #' @importFrom dplyr filter select %>%
 # TODO what about name conflicts?
 # TODO what about pipes? the environments there contain crucial elements
-package_ <- function (lazy_obj) {
+package_ <- function (lazy_obj, frmls) {
   stopifnot(is_lazy(lazy_obj))
   
   expr <- lazy_obj$expr
   if (!is_funexpr(expr) && !is_fundef(expr) && !is_pipe(expr) && !is.name(expr) && !is_colexpr(expr))
     stop('do not know how to handle lazy expression')
   
+  # `deps`  will contain the dependencies
+  # `user`  the user-define object to be called (if not a library function)
+  # `obj`   the name of the user-define object (`__user__`) or the name of
+  #         the library function
+  # `frmls` will contain the formal arguments of the `user` object to be
+  #         called in `__entry__`
+  
   # block of code
+  # default formals is just a dot `.`
   if (is_funexpr(expr)) {
-    # get all calls recursively, set expr as 'exec'
-    obj  <- expr
-    deps <- get_deps(obj, lazy_obj$env)
+    deps <- get_deps(expr, lazy_obj$env)
+    if (missing(frmls)) frmls <- alist(. =)
+    user <- code_to_global(expr, frmls)
+    obj  <- '__user__'
   }
   
   # function definition & function defined as pipe
+  # default formals are the function's formals
   if (is_fundef(expr) || is_pipe(expr)) {
-    # evaluate the function, get all calls recursively, set function obj as 'exec'
-    obj <- lazy_eval(lazy_obj)
-    assign('__anonymous__', obj, envir = lazy_obj$env)
-    deps <- get_deps(call('__anonymous__'), lazy_obj$env)
-    obj  <- '__anonymous__'
+    user <- lazy_eval(lazy_obj) # TODO maybe get_deps(expr) bc of how pipe is built?
+    deps <- get_deps(body(user), lazy_obj$env)
+    if (missing(frmls)) frmls <- formals(user)
+    user <- fun_to_global('__user__', user)
+    obj  <- '__user__'
   }
   
   # function referred to by name
+  # default formals are the function formals; `user` can be set to NULL
+  # because the function was referred to by its name
   if (is.name(expr) || is_colexpr(expr)) {
     obj  <- deparse(expr)
     deps <- get_deps(call(obj), lazy_obj$env)
+    # TODO it should work as long as obj is a valid name but maybe a check here?
+    if (missing(frmls)) frmls <- formals(get(obj, envir = lazy_obj$env))
+    user <- NULL
   }
   
   # load all global functions and enclosures
-  if ('global' %in% names(deps)) {
-    nms         <- deps$global
-    deps$global <- lapply(deps$global, function (name) {
-      fun <- get(name, envir = lazy_obj$env)
+  global <-
+    filter(deps, lib == 'global') %>%
+    alply(1, function(entry) {
+      fun <- get(entry$fun, envir = lazy_obj$env)
       # TODO make sure that the environment does not contain function
       #      which in turn have dependencies outside of this env
-      env <- if (identical(environment(fun), globalenv()))
-                list() else as.list(environment(fun))
+      env <- (if (identical(environment(fun), globalenv()))
+                list()
+              else
+                as.list(environment(fun)))
+      
       environment(fun) <- emptyenv()
-      list(fun = fun, env = env)
+      list(name = entry$name, fun = fun, env = env)
     })
-    names(deps$global) <- nms
-  }
 
-  # pick packages
-  pkgs <-
-    session_info(include_base = T)$packages %>%
-    filter(package %in% names(deps)) %>% # maybe all loaded packages?
-    select(package, version)
+  # add user object and the entry point
+  global <- bind_rows(as_data_frame(global), user, create_entry(obj, frmls))
   
-  # return the package
-  structure(list(exec = obj, deps = deps, packages = pkgs),
-            class = 'evaluation_package')
+  # deps contain only libraries
+  deps <- filter(deps, lib != 'global')
+  
+  # pick packages
+#   pkgs <-
+#     session_info(include_base = T)$packages %>%
+#     filter(package %in% names(deps)) %>% # maybe all loaded packages?
+#     select(package, version)
+  
+  # return the evaluation package
+  structure(list(deps = deps, global = global), class = 'evaluation_package')
 }
 
 
@@ -97,6 +118,31 @@ package_ <- function (lazy_obj) {
 #' @export
 #' @rdname package
 is_package <- function (x) inherits(x, 'evaluation_package')
+
+
+code_to_user <- function (code, frmls) {
+  stopifnot(is_funexpr(obj))
+  fun          <- function(){}
+  body(fun)    <- obj
+  formals(fun) <- frmls
+  fun_to_global('__user__', fun)
+}
+
+create_entry <- function (name, frmls) {
+  stopifnot(is.character(name))
+  fun <- function(){}
+  body(fun) <- as.call(c(as.name(name), lapply(names(frmls), as.name)))
+  formals(fun) <- frmls
+  fun_to_global('__entry__', fun)
+}
+
+#' @importFrom dplyr data_frame
+fun_to_global <- function (name, fun) {
+  stopifnot(is.function(fun))
+  environment(fun) <- emptyenv()
+  data_frame(name = name, fun  = list(fun), env = list(list()))
+}
+
 
 
 #' Find all dependencies.
@@ -133,7 +179,7 @@ get_deps <- function (expr, env = parent.frame()) {
     # search for the function in the environment enclosing the expression
     tmpf <- descr_fun(name, env)
     
-    if (tmpf$pkg == 'global') {
+    if (tmpf$lib == 'global') {
       more <- find_calls(call(name))
       more <- more[!processed$contains(more)]
       processing$push_back(more)
@@ -143,16 +189,14 @@ get_deps <- function (expr, env = parent.frame()) {
   }
   
   # empty case
-  if (is.null(fns) || !nrow(fns)) return(list())
+  if (is.null(fns) || !nrow(fns)) return(data_frame(lib = character(), fun = character()))
   
   # remove primitives; there should be no empty package names
-  fns <- filter(fns, pkg != 'primitive')
-  stopifnot(all(fns$pkg != ''))
+  fns <- filter(fns, pkg != 'primitive' || is.na(pkg))
+  stopifnot(all(nchar(fns$pkg) > 0))
   
   # make a list for each package; drop all attributes but names
-  deps <- dlply(fns, .(pkg), function(x)unique(x$name))
-  attributes(deps) <- list(names = names(deps))
-  deps
+  fns
 }
 
 
@@ -176,7 +220,7 @@ descr_fun <- function (fun_name, env = globalenv()) {
   name <- gsub(pkg_and_name_rx, "\\2", fun_name)
   
   # if package is given explicitely
-  if (pkg_name != '') return(list(pkg = pkg_name, name = name))
+  if (pkg_name != '') return(list(lib = pkg_name, fun = name))
   
   # try to access function and determine its environment
   # start searching in 'env'
@@ -185,11 +229,11 @@ descr_fun <- function (fun_name, env = globalenv()) {
   # error
   if (!is.function(f)) {
     warning('could not find function: ', fun_name)
-    return(c(pkg = NA, name = name))
+    return(c(lib = NA, fun = name))
   }
   
   # primitive
-  if (is.primitive(f)) return(list(pkg = 'primitive', name = name))
+  if (is.primitive(f)) return(list(lib = 'primitive', fun = name))
   
   # not primitive; if the top-env is global (simple case) or identical
   # closure exists in global env (e.g. result of plyr::each) then assume
@@ -197,13 +241,13 @@ descr_fun <- function (fun_name, env = globalenv()) {
   e <- get_env(f)
   g <- try(get(name, envir = globalenv(), inherits = F, mode = 'function'), silent = T)
   if (identical(e, globalenv()) || identical(f, g))
-    return(list(pkg = 'global', name = name))
+    return(list(lib = 'global', fun = name))
   
   if (!nchar(environmentName(e)))
     warning('could not determine environment name for: ', fun_name)
   
   # some package
-  list(pkg = environmentName(e), name = name)
+  list(lib = environmentName(e), fun = name)
 }
 
 
