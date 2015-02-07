@@ -109,7 +109,29 @@ test_that("block of code", {
 })
 
 
-test_that("pipe", {
+test_that("named pipe", {
+  load_or_skip(dplyr)
+  
+  fun <- . %>% mean(x)
+  e <- environment(fun)
+  parent.env(e) <- globalenv() # to fool package
+  
+  pkg <- package(fun)
+  check_basic_pkg(pkg, 0, 2)
+  
+  glb <- pkg$global
+  expect_equal(glb$name, c('fun', '__entry__'))
+  
+  expect_equal(class(glb$fun[[1]]), c('fseq', 'function'))
+  expect_equal(glb$fun[[1]], fun)
+  expect_equal(glb$fun[[2]], function(value)fun(value)) # __entry__
+  
+  expect_equal(glb$env[[1]], as.list(environment(fun)))
+  expect_equal(glb$env[[2]], list())
+})
+
+
+test_that("pipe on the fly", {
   load_or_skip(dplyr)
   
   pkg <- package(. %>% mean(x))
