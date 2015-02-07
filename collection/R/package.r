@@ -3,9 +3,11 @@
 #' Packages \code{what} and its dependencies, adds info on
 #' packages required to call \code{what}.
 #' 
-#' @param what A \code{function} object or name, a function
-#' definition or, a \code{\link{magrittr}[pipe]} definition,
-#' or a block of code.
+#' @param what A \code{function} object or name, a function definition
+#'             or, a \code{\link{magrittr}[pipe]} definition, or a block
+#'             of code.
+#' @param frmls Result of calling either \code{\link{formals}} or
+#'             \code{\link{alist}}.
 #' 
 #' @return An evaluation package object.
 #'
@@ -21,7 +23,7 @@
 #'   mean(x)
 #' })
 #' 
-package <- function (what) {
+package <- function (what, frmls) {
   # expression can be passed down the call stack
   x <- substitute(what)
   e <- parent.frame()

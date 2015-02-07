@@ -97,7 +97,16 @@ test_that("user-defined non-empty env", {
 
 
 test_that("block of code", {
-  pkg <- package({ mean(x) })
+  pkg <- package({ mean(.) })
+  
+  check_basic_pkg(pkg, 0, 2)
+  
+  glb <- pkg$global
+  expect_equal(glb$name, c('__user__', '__entry__'))
+  expect_equal(glb$fun[[1]], function(.){mean(.)})
+  expect_equal(glb$fun[[2]], function(.)`__user__`(.)) # __entry__
+  expect_equal(glb$env[[1]], list())
+  expect_equal(glb$env[[2]], list())
 })
 
 
