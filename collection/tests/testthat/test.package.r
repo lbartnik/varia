@@ -117,7 +117,8 @@ test_that("named pipe", {
   parent.env(e) <- globalenv() # to fool package
   
   pkg <- package(fun)
-  check_basic_pkg(pkg, 0, 2)
+  check_basic_pkg(pkg, 1, 2)
+  expect_equal(pkg$deps, data_frame(lib = 'base', fun = 'mean'))
   
   glb <- pkg$global
   expect_equal(glb$name, c('fun', '__entry__'))
@@ -135,7 +136,8 @@ test_that("pipe on the fly", {
   load_or_skip(dplyr)
   
   pkg <- package(. %>% mean(x))
-  check_basic_pkg(pkg, 0, 2)
+  check_basic_pkg(pkg, 1, 2)
+  expect_equal(pkg$deps, data_frame(lib = 'base', fun = 'mean'))
   
   glb <- pkg$global
   expect_equal(glb$name, c('__user__', '__entry__'))
@@ -148,3 +150,17 @@ test_that("pipe on the fly", {
   expect_equal(glb$env[[2]], list())
 })
 
+
+test_that('complex user-defined', {
+  load_or_skip(dplyr)
+  pkg <- package(function(x) {
+    a <- filter(iris, Species == x)
+    b <- summary(iris)
+  })
+  
+  check_basic_pkg(pkg, 2, 2)
+  expect_equal(pkg$deps, data_frame(lib = c('dplyr', 'base'),
+                                    fun = c('filter', 'summary')))
+  
+  expect_equal(pkg$global$name, c('__user__', '__entry__'))
+})

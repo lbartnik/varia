@@ -41,7 +41,6 @@ package <- function (what, frmls) {
 #' @importFrom magrittr extract2 functions
 #
 # TODO what about name conflicts?
-# TODO what about pipes? the environments there contain crucial elements
 package_ <- function (lazy_obj, frmls) {
   stopifnot(is_lazy(lazy_obj))
   
@@ -178,7 +177,8 @@ fun_to_global <- function (name, fun, env = emptyenv()) {
 #' @return Dependencies in a \code{list}.
 #'
 #' @importFrom dplyr filter bind_rows
-#' @importFrom plyr dlply .
+#' @importFrom plyr dlply laply .
+#' @importFrom magrittr functions
 #' 
 #' @examples
 #' 
@@ -202,7 +202,14 @@ get_deps <- function (expr, env = parent.frame()) {
     tmpf <- descr_fun(name, env)
     
     if (tmpf$lib == 'global') {
-      more <- find_calls(call(name))
+      fun <- get(name, envir = env) # it has to be accessible if descr_fun returned 'global'
+      more <- (
+        if (inherits(fun, 'fseq'))
+          laply(functions(fun), function(f) find_calls(body(f)))
+        else
+          find_calls(body(fun))
+      )
+      
       more <- more[!processed$contains(more)]
       processing$push_back(more)
     }
@@ -214,7 +221,7 @@ get_deps <- function (expr, env = parent.frame()) {
   if (is.null(fns) || !nrow(fns)) return(data_frame(lib = character(), fun = character()))
   
   # remove primitives; there should be no empty package names
-  fns <- filter(fns, lib != 'primitive' || is.na(lib))
+  fns <- filter(fns, lib != 'primitive' & !is.na(lib))
   stopifnot(all(nchar(fns$lib) > 0))
   
   # make a list for each package; drop all attributes but names
