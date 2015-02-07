@@ -2,7 +2,7 @@ context("package evaluation")
 
 
 test_that("simple evalutation", {
-  if (!load_dplyr()) skip('error loading dplyr')
+  load_or_skip(dplyr)
   
   pkg <- structure(list(
     deps   = data_frame(lib = 'base', fun = 'summary'),
@@ -14,7 +14,7 @@ test_that("simple evalutation", {
 
 
 test_that("user-defined evalutation", {
-  if (!load_dplyr()) skip('error loading dplyr')
+  load_or_skip(dplyr)
   
   pkg <- structure(list(
     deps   = data_frame(),

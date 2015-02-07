@@ -35,6 +35,9 @@ package <- function (what) {
 #' 
 #' @importFrom devtools session_info
 #' @importFrom dplyr filter select %>%
+#' @importFrom plyr alply
+#' @importFrom magrittr extract2
+#
 # TODO what about name conflicts?
 # TODO what about pipes? the environments there contain crucial elements
 package_ <- function (lazy_obj, frmls) {
@@ -46,8 +49,8 @@ package_ <- function (lazy_obj, frmls) {
   
   # `deps`  will contain the dependencies
   # `user`  the user-define object to be called (if not a library function)
-  # `obj`   the name of the user-define object (`__user__`) or the name of
-  #         the library function
+  # `obj`   the symbol of the user-define object (`__user__`) or the name
+  #         of the library function (symbol or call if given as a::b)
   # `frmls` will contain the formal arguments of the `user` object to be
   #         called in `__entry__`
   
@@ -55,9 +58,10 @@ package_ <- function (lazy_obj, frmls) {
   # default formals is just a dot `.`
   if (is_funexpr(expr)) {
     deps <- get_deps(expr, lazy_obj$env)
-    if (missing(frmls)) frmls <- alist(. =)
-    user <- code_to_global(expr, frmls)
-    obj  <- '__user__'
+    if (missing(frmls))
+      frmls <- alist(. =)
+    user <- code_to_user(expr, frmls)
+    obj  <- as.name('__user__')
   }
   
   # function definition & function defined as pipe
@@ -67,25 +71,29 @@ package_ <- function (lazy_obj, frmls) {
     deps <- get_deps(body(user), lazy_obj$env)
     if (missing(frmls)) frmls <- formals(user)
     user <- fun_to_global('__user__', user)
-    obj  <- '__user__'
+    obj  <- as.name('__user__')
   }
   
   # function referred to by name
   # default formals are the function formals; `user` can be set to NULL
   # because the function was referred to by its name
   if (is.name(expr) || is_colexpr(expr)) {
-    obj  <- deparse(expr)
-    deps <- get_deps(call(obj), lazy_obj$env)
-    # TODO it should work as long as obj is a valid name but maybe a check here?
-    if (missing(frmls)) frmls <- formals(get(obj, envir = lazy_obj$env))
+    deps <- get_deps(as.call(c(expr)), lazy_obj$env)
+    if (missing(frmls)) {
+      search <- if (is_colexpr(expr)) deparse(expr[[3]]) else deparse(expr)
+      # TODO if deps work this should work too but maybe a check here?
+      frmls <- formals(get(search, envir = lazy_obj$env))
+    }
+    obj  <- expr
     user <- NULL
   }
   
   # load all global functions and enclosures
   global <-
     filter(deps, lib == 'global') %>%
-    alply(1, function(entry) {
-      fun <- get(entry$fun, envir = lazy_obj$env)
+    extract2('fun') %>%
+    ldply(function(name) {
+      fun <- get(name, envir = lazy_obj$env)
       # TODO make sure that the environment does not contain function
       #      which in turn have dependencies outside of this env
       env <- (if (identical(environment(fun), globalenv()))
@@ -94,7 +102,7 @@ package_ <- function (lazy_obj, frmls) {
                 as.list(environment(fun)))
       
       environment(fun) <- emptyenv()
-      list(name = entry$name, fun = fun, env = env)
+      data_frame(name = name, fun = list(fun), env = list(env))
     })
 
   # add user object and the entry point
@@ -121,17 +129,17 @@ is_package <- function (x) inherits(x, 'evaluation_package')
 
 
 code_to_user <- function (code, frmls) {
-  stopifnot(is_funexpr(obj))
+  stopifnot(is_funexpr(code))
   fun          <- function(){}
-  body(fun)    <- obj
+  body(fun)    <- code
   formals(fun) <- frmls
   fun_to_global('__user__', fun)
 }
 
-create_entry <- function (name, frmls) {
-  stopifnot(is.character(name))
+create_entry <- function (call_it, frmls) {
+  stopifnot(is.name(call_it) || is.call(call_it)) # a or a::b
   fun <- function(){}
-  body(fun) <- as.call(c(as.name(name), lapply(names(frmls), as.name)))
+  body(fun) <- as.call(c(call_it, lapply(names(frmls), as.name)))
   formals(fun) <- frmls
   fun_to_global('__entry__', fun)
 }
@@ -192,8 +200,8 @@ get_deps <- function (expr, env = parent.frame()) {
   if (is.null(fns) || !nrow(fns)) return(data_frame(lib = character(), fun = character()))
   
   # remove primitives; there should be no empty package names
-  fns <- filter(fns, pkg != 'primitive' || is.na(pkg))
-  stopifnot(all(nchar(fns$pkg) > 0))
+  fns <- filter(fns, lib != 'primitive' || is.na(lib))
+  stopifnot(all(nchar(fns$lib) > 0))
   
   # make a list for each package; drop all attributes but names
   fns
