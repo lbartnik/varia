@@ -191,9 +191,13 @@ descr_fun <- function (fun_name, env = globalenv()) {
   # primitive
   if (is.primitive(f)) return(list(pkg = 'primitive', name = name))
   
-  # not primitive; determine the environment
+  # not primitive; if the top-env is global (simple case) or identical
+  # closure exists in global env (e.g. result of plyr::each) then assume
+  # it should be stored in the package
   e <- get_env(f)
-  if (identical(e, globalenv())) return(list(pkg = 'global', name = name))
+  g <- try(get(name, envir = globalenv(), inherits = F, mode = 'function'), silent = T)
+  if (identical(e, globalenv()) || identical(f, g))
+    return(list(pkg = 'global', name = name))
   
   if (!nchar(environmentName(e)))
     warning('could not determine environment name for: ', fun_name)
@@ -240,73 +244,4 @@ find_calls <- function(x) {
   # default from the original version; something other than :: and :::
   c(as.character(x[[1]]), recurse[-1])
 }
-
-
-#' Evaluate a package.
-#' 
-#' @param pkg Package to be avaluated.
-#' 
-#' @export
-#' @examples
-#' \dontrun{
-#' pkg <- package(mean)
-#' eval_pkg(pkg)
-#' }
-eval_pkg <- function (pkg) {
-  stopifnot(is_package(pkg))  
-  
-  errors <- Queue$new()
-  e <- new.env(parent = globalenv())
-  
-  # 1. load required packages
-  for (name in pkg$packages$package) {
-    if (!require(name, quietly = T))
-      errors$push_back(paste('could not load package', name))
-  }
-  
-  if (!errors$empty()) return(errors) # how to handle errors? result object?
-  
-  # 2. assign global functions
-  if ('global' %in% names(pkg$deps)) {
-    glb <- pkg$deps$global
-    for (name in names(glb)) {
-      assign(name, glb[[name]], envir = e)
-    }
-  }
-  
-  # 3. make sure all other functions are available
-  for (pkg_name in setdiff(names(pkg$deps), 'global')) {
-    for (func_name in pkg$deps[[pkg_name]]) {
-      res <- tryCatch(`::`(pkg_name, func_name), error = toString)
-      if (!is.function(res)) {
-        errors$push_back(paste0('function ', pkg_name, '::',
-                                func_name, ' not available'))
-      }
-    }
-  }
-  
-  # 4. evaluate code/call function
-  e$obj <- list() # object
-  e$tag <- list() # tag(s)
-  
-  f <- function(obj, tag){}
-  environment(f) <- new.env(parent = e)
-  
-  if (is.character(pkg$exec))
-    body(f) <- as.call(c(as.name(pkg$exec), quote(obj), quote(tag)))
-  else if (is_funexpr(pkg$exec))
-    body(f) <- pkg$exec
-  
-  e$f <- f
-  eval(as.call(quote(f), quote(obj), quote(tag)), e)
-  
-  # TODO finish
-  # 5. process results
-}
-
-
-
-
-
-
 
