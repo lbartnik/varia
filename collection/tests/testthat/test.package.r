@@ -164,3 +164,18 @@ test_that('complex user-defined', {
   
   expect_equal(pkg$global$name, c('__user__', '__entry__'))
 })
+
+
+# also tests for a function name in pipe but not a call
+test_that('complex pipe', {
+  load_or_skip(dplyr)
+  pkg <- package(. %>% filter(a == 'x') %>% arrange(b) %>% summary)
+  
+  check_basic_pkg(pkg, 3, 2)
+  expect_equal(pkg$deps, data_frame(lib = c('dplyr', 'dplyr', 'base'),
+                                    fun = c('filter', 'arrange', 'summary')))
+  
+  expect_equal(pkg$global$name, c('__user__', '__entry__'))
+})
+
+
