@@ -36,7 +36,8 @@ is_colexpr <- function(expr)
 # @return logical - TRUE if a valid magrittr pipe, FALSE otherwise.
 is_pipe <- function(pipe)
 {
-  identical(pipe, quote(`%>%`))
+  identical(pipe, quote(`%>%`)) ||
+    (is.call(pipe) && identical(pipe[[1]], quote(`%>%`)))
 }
 
 # --- end: magrittr ----------------------------------------------------

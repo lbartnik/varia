@@ -38,7 +38,7 @@ package <- function (what, frmls) {
 #' @importFrom devtools session_info
 #' @importFrom dplyr filter select %>%
 #' @importFrom plyr alply
-#' @importFrom magrittr extract2
+#' @importFrom magrittr extract2 functions
 #
 # TODO what about name conflicts?
 # TODO what about pipes? the environments there contain crucial elements
@@ -68,8 +68,8 @@ package_ <- function (lazy_obj, frmls) {
   
   # function definition & function defined as pipe
   # default formals are the function's formals
-  if (is_fundef(expr) || is_pipe(expr)) {
-    user <- lazy_eval(lazy_obj) # TODO maybe get_deps(expr) bc of how pipe is built?
+  if (is_fundef(expr)) {
+    user <- lazy_eval(lazy_obj)
     deps <- get_deps(body(user), lazy_obj$env)
     if (missing(frmls)) frmls <- formals(user)
     user <- fun_to_global('__user__', user)
@@ -88,6 +88,19 @@ package_ <- function (lazy_obj, frmls) {
     }
     obj  <- expr
     user <- NULL
+  }
+  
+  # pipe expression
+  # it is crucial to preserve the environment! calls are defined
+  # in the list of functios
+  if (is_pipe(expr)) {
+    user <- lazy_eval(lazy_obj)
+    deps <- ldply(functions(user), function (f) {
+      get_deps(body(f), lazy_obj$env)
+    })
+    if (missing(frmls)) frmls <- formals(user)
+    user <- fun_to_global('__user__', user, environment(user))
+    obj  <- as.name('__user__')
   }
   
   # load all global functions and enclosures
@@ -147,12 +160,11 @@ create_entry <- function (call_it, frmls) {
 }
 
 #' @importFrom dplyr data_frame
-fun_to_global <- function (name, fun) {
+fun_to_global <- function (name, fun, env = emptyenv()) {
   stopifnot(is.function(fun))
   environment(fun) <- emptyenv()
-  data_frame(name = name, fun  = list(fun), env = list(list()))
+  data_frame(name = name, fun  = list(fun), env = list(as.list(env)))
 }
-
 
 
 #' Find all dependencies.
@@ -215,7 +227,6 @@ pkg_rx <- ".*[^:]"
 colons_rx <- "::(?:[:]?)"
 name_rx <- ".*"
 pkg_and_name_rx <- sprintf("^(?:(%s)%s)?(%s)$", pkg_rx, colons_rx, name_rx)
-
 
 #' Build a function description.
 #' 
