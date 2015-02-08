@@ -1,0 +1,17 @@
+---
+title: "Distributing"
+author: "Lukasz A. Bartnik <l.bartnik@gmail.com>"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  \usepackage[utf8]{inputenc}
+---
+
+1. copy the evaluation package to a remote host via scp
+2. log in to the remote host via ssh and control the execution
+   of the remote job
+3. store the results in a collection or send them back over
+   the ssh channel
+

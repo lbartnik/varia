@@ -134,14 +134,28 @@ package_ <- function (lazy_obj, frmls) {
 #     select(package, version)
   
   # return the evaluation package
-  structure(list(deps = deps, global = global), class = 'evaluation_package')
+  structure(list(deps = deps, global = global), class = 'eval_pkg')
 }
 
 
 #' @param x An object to be tested.
 #' @export
 #' @rdname package
-is_package <- function (x) inherits(x, 'evaluation_package')
+is_package <- function (x) inherits(x, 'eval_pkg')
+
+
+#' @export
+print.eval_pkg <- function (x) {
+  cat('eval-package')
+  
+  # entry formals
+  entry <- x$global[x$global$name == '__entry__', ]
+  a <- formals(entry$fun[[1]])
+  n <- names(a); v <- as.character(a)
+  a <- paste0(n, ifelse(nchar(v), " = ", ""), v, collapse = ', ')
+  cat(paste0('(', a, ')'))
+}
+
 
 
 code_to_user <- function (code, frmls) {

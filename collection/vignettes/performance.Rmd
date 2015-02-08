@@ -1,0 +1,53 @@
+---
+title: "Performance"
+author: "Lukasz A. Bartnik <l.bartnik@gmail.com>"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  \usepackage[utf8]{inputenc}
+---
+
+```{r}
+generate_data <- function (sites, exp_days) {
+  random_date <- function(n) as.POSIXct('1990-01-01') + 86400 * sample.int(n*10, n)
+  lapply(seq(sites), function (id) {
+    days <- rgeom(1, 1/exp_days)
+    lapply(random_date(days), function (day) {
+      list(data = rchisq(288, 10), day = day, id = id)
+    })
+  })
+}
+
+data <- generate_data(100, 10)
+```
+
+
+```{r}
+library(fpp)
+analyze <- function (data) {
+  auto.arima(ts(data$data))
+  # ...
+}
+```
+
+
+Simple approach
+
+```{r}
+library(parallel)
+mclapply(data, analyze)
+```
+
+
+With Collection
+
+```{r}
+# 1. data to collection
+# 2. process with collection
+```
+
+`mclapply` is constrained by the available RAM
+
+

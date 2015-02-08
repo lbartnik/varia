@@ -7,9 +7,11 @@ Author: Lukasz A. Bartnik <l.bartnik@gmail.com>
 Maintainer: Lukasz A. Bartnik <l.bartnik@gmail.com>
 Description: Stores objects in file system.
 License: GPL3
-Imports:
+Imports: 
     digest,
     dplyr,
     magrittr,
     plyr
-Suggests: testthat
+Suggests: testthat,
+    knitr
+VignetteBuilder: knitr
