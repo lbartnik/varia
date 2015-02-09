@@ -1,5 +1,39 @@
 #' @export
 #' @importFrom lazyeval lazy_dots
+with_tags <- function (x, ...) {
+  dots <- lazy_dots(...)
+  with_tags_(x, .dots = dots)
+}
+
+#' @export
+with_tags_ <- function (x, .dots) {
+  stopifnot(all(nchar(names(.dots)) > 0))
+  attr(x, 'tags') <- eval_tags(.dots, x)
+  x
+}
+
+#' @export
+no_tags <- function (x) {
+  if (has_tags(x)) attr(x, 'tags') <- NULL
+  x
+}
+
+#' @export
+has_tags <- function (x) { 'tags' %in% names(attributes(x)) }
+
+#' @importFrom lazyeval lazy_eval
+eval_tags <- function (dots, obj) {
+  data <- list(. = obj)
+  if (is.list(obj))
+    data <- c(data, obj)
+  
+  lazy_eval(dots, data)
+}
+
+
+# TODO rename that to summary.collection
+#' @export
+#' @importFrom lazyeval lazy_dots
 tags <- function (col, ...) {
   stopifnot(is_collection(col))
   
@@ -79,18 +113,28 @@ print.tags <- function (x) {
 }
 
 
+#' Re-compute tags.
+#' 
+#' @param col collection object
+#' @param ... Named tag expressions
+#' @param .add If \code{TRUE} will merge old and new tags.
+#' 
 #' @export
 #' @importFrom lazyeval lazy_dots
-#' @importFrom plyr l_ply
+#' @importFrom plyr l_ply defaults
 #' @importFrom tools file_path_sans_ext
-retag <- function (col, ...) {
+retag <- function (col, ..., .add = T) {
   stopifnot(is_collection(col))
   
   dots <- lazy_dots(...)
+  stopifnot(all(nchar(names(dots)))) # all must have names
+  
   obj_files(col) %>%
     l_ply(function(path) {
       tags <- eval_tags(dots, readRDS(path))
       path <- paste0(file_path_sans_ext(path), '_tags.rds')
+      if (.add)
+        tags <- defaults(tags, readRDS(path))
       saveRDS(tags, path)
     })
 }

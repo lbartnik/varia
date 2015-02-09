@@ -1,28 +1,47 @@
+#' @export
+collection <- function (x, ...) UseMethod('collection')
+
 
 #' @export
-create_collection <- function (path) {
-  stopifnot(!file.exists(path))         # dir does not exist
-  stopifnot(file.exists(dirname(path))) # up-dir must exist
-  
-  dir.create(path)
-  structure(character(), path = path, class = 'collection')
+collection.default <- function (x, ...) {
+  stop('cannot read/create collection from ', class(x)[1], call. = FALSE)
 }
 
+
+# TODO add .create parameter
 #' @export
-collection <- function (path) {
+collection.character <- function (path) {
   stopifnot(is_dir(path))
   
   col <- structure(list_ids(path), path = path, class = 'collection')
   obj <- obj_files(col)
   tgs <- tag_files(col)
-
-  stopifnot(all(file.exists(obj)))
-  stopifnot(all(file.exists(tgs)))
+  
+  if (length(obj)) stopifnot(all(file.exists(obj)))
+  if (length(tgs)) stopifnot(all(file.exists(tgs)))
+  
+  comment <- file.path(path, 'comment.rds')
+  if (!file.exists(comment)) comment <- NULL
   
   files <- list.files(path, recursive = T, full.names = T)
-  stopifnot(setequal(files, c(obj, tgs)))
-
+  stopifnot(setequal(files, c(obj, tgs, comment)))
+  
   col
+}
+
+
+#' @export
+create_collection <- function (path, comment) {
+  stopifnot(!file.exists(path))         # dir does not exist
+  stopifnot(file.exists(dirname(path))) # up-dir must exist
+  
+  dir.create(path)
+  
+  # if cared to comment
+  if (!missing(comment))
+    saveRDS(as.character(comment), file.path(path, 'comment.rds'))
+  
+  structure(character(), path = path, class = 'collection')
 }
 
 
@@ -32,25 +51,43 @@ from_collection <- function (ids, col) {
 
 is_collection <- function (x) inherits(x, 'collection')
 
+
 #' @export
 #' @importFrom plyr laply
 print.collection <- function (col, ...) {
-  if (!length(col)) {
-    cat('empty collection')
-    return(invisible())
-  }
+  # if created with a comment
+  comment_path <- file.path(path(col), 'comment.rds')
+  comment <- if (file.exists(comment_path)) readRDS(comment_path)
+  if (!is.null(comment) && nchar(comment)) comment <- paste0('(comment: ', comment, ')')
   
+  # if there are no objects yet
+  if (!length(col)) {
+    return(cat('empty collection', comment))
+  }
+
   sizes <- laply(obj_files(col), function(path) file.info(path)$size)
   size  <- structure(sum(sizes), class = 'object_size')
-  cat('collection:', length(sizes), 'object(s),', format(size, 'auto'))
+  cat(length(sizes), 'object(s),', format(size, 'auto'), comment)
 }
 
 
 #' @export
-#' @importFrom dplyr data_frame filter rename select %>%
+list_objects <- function (col, .n = 10) {
+  stopifnot(is_collection(col))
+  # TODO
+  stop('not implemented yet')
+}
+
+
+
+
+
+#' @export
+#' @importFrom dplyr data_frame filter rename filter_ %>%
 #' @importFrom plyr mdply
 #' @importFrom magrittr extract2
-select_.collection <- function (col, .dots) {
+#' @importFrom lazyeval lazy_eval
+filter_.collection <- function (col, .dots) {
   stopifnot(is_collection(col))
   
   tags <-
@@ -78,10 +115,24 @@ select_.collection <- function (col, .dots) {
 }
 
 
+# TODO rename to add_object
+#' Add object to collection
+#' 
+#' @return Single-element collection containing the newly added object.
+#' 
 #' @export
 #' 
 #' @importFrom lazyeval lazy_dots
-add <- function (col, obj, ..., force = F) {
+add <- function (col, obj, ..., .force = F) {
+  dots <- lazy_dots(...)
+  add_(col, obj, .dots = dots, .force = .force)
+}
+
+
+# TODO rename to add_object
+#' @export
+add_ <- function (col, obj, .dots, .force = F) {
+  # TODO if called directly from globalenv print message to refresh collection object
   stopifnot(is_collection(col))
   
   id   <- md5(obj)
@@ -89,27 +140,16 @@ add <- function (col, obj, ..., force = F) {
   file <- file.path(path(col), file)
   
   if (file.exists(paste0(file, '.rds'))) {
-    if (!force) stop('object already exists', call. = F)
+    if (!.force) stop('object already exists', call. = F)
     warning('object already exists, forced to overwrite', call. = F)
   }
   else
     dir.create(dirname(file), recursive = T, showWarnings = F)
   
-  dots <- lazy_dots(...)
-  tags <- eval_tags(dots, obj)
+  tags <- eval_tags(.dots, obj)
   
   saveRDS(obj, paste0(file, '.rds'))
   saveRDS(tags, paste0(file, '_tags.rds'))
   
-  from_collection(c(col, id), col)
-}
-
-
-#' @importFrom lazyeval lazy_eval
-eval_tags <- function (dots, obj) {
-  data <- list(. = obj)
-  if (is.list(obj))
-    data <- c(data, obj)
-  
-  lazy_eval(dots, data)
+  from_collection(id, col)
 }

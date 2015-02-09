@@ -4,7 +4,8 @@ is_dir <- function (x) file.exists(x) && file.info(x)$isdir
 list_ids <- function (path) {
   list.files(path, '^[a-z0-9]+.rds$', recursive = T, full.names = F) %>%
     basename %>%
-{gsub('.rds$', '', .)}
+    setdiff('comment.rds') %>%
+    {gsub('.rds$', '', .)}
 }
 
 list_files <- function (col, sfx) {

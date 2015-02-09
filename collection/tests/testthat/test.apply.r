@@ -1,6 +1,8 @@
 context('apply')
 
 test_that('simple case', {
+  skip('experimental')
+  
   res <-
     collection('./sample-collection') %>%
     oply(summary) %>%

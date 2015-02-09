@@ -1,11 +1,11 @@
 context('collection')
 
 
-test_that('select', {
+test_that('filter', {
   col <- collection('sample-collection')
   
-  expect_equal(length(select(col, a == 1)), 2)
-  expect_equal(length(select(col)), 3)
+  expect_equal(length(filter(col, a == 1)), 2)
+  expect_equal(length(filter(col)), 3)
 })
 
 
@@ -21,7 +21,7 @@ test_that('basic operations', {
   f <- list.files(path, '*.rds', recursive = T)
   expect_equal(length(f), 4) # (object + tags) x2
   
-  x <- select(col) # no criteria, select all
+  x <- filter(col) # no criteria, select all
   expect_true(is.character(x))
   expect_equal(length(x), 2)
   
@@ -39,7 +39,7 @@ test_that('adding with tag', {
   col  <- create_collection(path)
   col  <- add(col, 1, day = as.Date('2011-02-02'))
   
-  x <- select(col, day == as.Date('2011-02-02'))
+  x <- filter(col, day == as.Date('2011-02-02'))
   expect_true(is.character(x))
   expect_equal(length(x), 1)
   
@@ -76,7 +76,7 @@ test_that('tags print', {
   col  <- create_collection(path)
   
   col <- add(col, list(a = 999), x = 1)
-  expect_equal(length(select(col)), 1)
+  expect_equal(length(filter(col)), 1)
   expect_equal(tags(col)[], list(x = 1))
   
   retag(col, x = 1, y = 2)
