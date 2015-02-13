@@ -48,84 +48,57 @@ package_ <- function (lazy_obj, frmls) {
   if (!is_funexpr(expr) && !is_fundef(expr) && !is_pipe(expr) && !is.name(expr) && !is_colexpr(expr))
     stop('do not know how to handle lazy expression')
   
-  # `deps`  will contain the dependencies
-  # `user`  the user-define object to be called (if not a library function)
-  # `obj`   the symbol of the user-define object (`__user__`) or the name
-  #         of the library function (symbol or call if given as a::b)
-  # `frmls` will contain the formal arguments of the `user` object to be
-  #         called in `__entry__`
-  
   # block of code
   # default formals is just a dot `.`
   if (is_funexpr(expr)) {
-    deps <- get_deps(expr, lazy_obj$env)
-    if (missing(frmls))
-      frmls <- alist(. =)
-    user <- code_to_user(expr, frmls)
-    obj  <- as.name('__user__')
+    if (missing(frmls)) frmls <- alist(. =)
+    calls  <- extract_calls(expr, lazy_obj$env)
+    global <- bind_rows(extract_global(calls, lazy_obj$env),
+                        code_to_user(expr, frmls),
+                        create_entry(as.name('__user__'), frmls))
   }
   
-  # function definition & function defined as pipe
-  # default formals are the function's formals
-  if (is_fundef(expr)) {
-    user <- lazy_eval(lazy_obj)
-    deps <- get_deps(body(user), lazy_obj$env)
-    if (missing(frmls)) frmls <- formals(user)
-    user <- fun_to_global('__user__', user)
-    obj  <- as.name('__user__')
-  }
-  
-  # function referred to by name
+  # function referred to by name || library::function
+  #
   # default formals are the function formals; `user` can be set to NULL
   # because the function was referred to by its name
   if (is.name(expr) || is_colexpr(expr)) {
-    deps <- get_deps(as.call(c(expr)), lazy_obj$env)
-    if (missing(frmls)) {
-      search <- if (is_colexpr(expr)) deparse(expr[[3]]) else deparse(expr)
-      # user provided object might not be define at all
-      fun <- tryCatch(get(search, envir = lazy_obj$env),
-                      error = function(e)stop(paste('could not find', search), call. = F))
-      frmls <- formals(fun)
-    }
-    obj  <- expr
-    user <- NULL
+    # name might not be defined at all
+    fun <- tryCatch(lazy_eval(lazy_obj),
+                    error = function(e)stop('could not find ', deparse(expr), call. = F))
+    
+    if (missing(frmls)) frmls <- formals(fun)
+    calls  <- extract_calls(as.call(list(expr)), lazy_obj$env)
+    global <- bind_rows(extract_global(calls, lazy_obj$env),
+                        create_entry(expr, frmls))
   }
   
+  # function definition
+  # default formals are the function's formals
+  if (is_fundef(expr)) {
+    fun   <- lazy_eval(lazy_obj)
+    calls <- extract_calls(body(fun), lazy_obj$env)
+    if (missing(frmls)) frmls <- formals(fun)
+    
+    global <- bind_rows(extract_global(calls, lazy_obj$env),
+                        fun_to_global('__user__', fun),
+                        create_entry(as.name('__user__'), frmls))
+  }
+    
   # pipe expression
   # it is crucial to preserve the environment! calls are defined
   # in the list of functios
   if (is_pipe(expr)) {
-    user <- lazy_eval(lazy_obj)
-    deps <- ldply(functions(user), function (f) {
-      get_deps(body(f), lazy_obj$env)
+    fun   <- lazy_eval(lazy_obj)
+    calls <- ldply(functions(fun), function (f) {
+      extract_calls(body(f), lazy_obj$env)
     })
-    if (missing(frmls)) frmls <- formals(user)
-    user <- fun_to_global('__user__', user, environment(user))
-    obj  <- as.name('__user__')
+    if (missing(frmls)) frmls <- formals(fun)
+    
+    global <- bind_rows(extract_global(calls, lazy_obj$env),
+                        fun_to_global('__user__', fun, environment(fun)),
+                        create_entry(as.name('__user__'), frmls))
   }
-  
-  # load all global functions and enclosures
-  global <-
-    filter(deps, lib == 'global') %>%
-    extract2('fun') %>%
-    ldply(function(name) {
-      fun <- get(name, envir = lazy_obj$env)
-      # TODO make sure that the environment does not contain function
-      #      which in turn have dependencies outside of this env
-      env <- (if (identical(environment(fun), globalenv()))
-                list()
-              else
-                as.list(environment(fun)))
-      
-      environment(fun) <- emptyenv()
-      data_frame(name = name, fun = list(fun), env = list(env))
-    })
-
-  # add user object and the entry point
-  global <- bind_rows(as_data_frame(global), user, create_entry(obj, frmls))
-  
-  # deps contain only libraries
-  deps <- filter(deps, lib != 'global')
   
   # pick packages
 #   pkgs <-
@@ -134,7 +107,9 @@ package_ <- function (lazy_obj, frmls) {
 #     select(package, version)
   
   # return the evaluation package
-  structure(list(deps = deps, global = global), class = 'eval_pkg')
+  return(structure(list(deps   = filter(calls, lib != 'global'),
+                        global = global),
+                   class = 'eval_pkg'))
 }
 
 
@@ -182,6 +157,30 @@ fun_to_global <- function (name, fun, env = emptyenv()) {
 }
 
 
+#' @importFrom magrittr extract2
+#' @importFrom dplyr filter data_frame %>%
+#' @importFrom plyr ldply
+extract_global <- function (calls, env) {
+  # find & load all global functions and enclosures
+  filter(calls, lib == 'global') %>%
+    extract2('fun') %>%
+    ldply(function(name) {
+      fun <- get(name, envir = env)
+      # TODO make sure that the environment does not contain function
+      #      which in turn have dependencies outside of this env
+      env <- (if (identical(environment(fun), globalenv()))
+                list()
+              else
+                as.list(environment(fun)))
+      
+      environment(fun) <- emptyenv()
+      data_frame(name = name, fun = list(fun), env = list(env))
+    }) %>%
+    as_data_frame
+}
+
+
+
 #' Find all dependencies.
 #' 
 #' Search recursively for all dependencies of the given expression.
@@ -198,15 +197,31 @@ fun_to_global <- function (name, fun, env = emptyenv()) {
 #' 
 #' @examples
 #' 
-#' get_deps(call('mean'))
-#' get_deps(quote({ mean(x) }))
-#' get_deps(body(function(x)x*x))
-get_deps <- function (expr, env = parent.frame()) {
-  stopifnot(is.language(expr))
+#' extract_calls(call('mean'))
+#' extract_calls(quote({ mean(x) }))
+#' extract_calls(body(function(x)x*x))
+extract_calls <- function (obj, env = parent.frame()) {
+  stopifnot(is.language(obj) || is.function(obj))
   
-  processing <- Queue$new(elements = find_calls(expr))
+  # internal
+  process_fun <- function (fun) {
+    if (inherits(fun, 'fseq'))
+      laply(functions(fun), function(f) find_calls(body(f)))
+    else
+      find_calls(body(fun))
+  }
+  
+  # queues
+  processing <- Queue$new()
   processed  <- Queue$new()
   
+  # initialize
+  if (is.language(obj))
+    processing$push_back(find_calls(obj))
+  else
+    processing$push_back(process_fun(fun))
+
+  # iterate until all globals are processed
   fns <- NULL
   while(!processing$empty()) {
     name <- processing$pop_front()
@@ -222,14 +237,8 @@ get_deps <- function (expr, env = parent.frame()) {
     
     # if global search for more dependencies
     if (tmpf$lib == 'global') {
-      fun <- get(name, envir = env) # it has to be accessible if descr_fun returned 'global'
-      more <- (
-        if (inherits(fun, 'fseq'))
-          laply(functions(fun), function(f) find_calls(body(f)))
-        else
-          find_calls(body(fun))
-      )
-      
+      fun  <- get(name, envir = env) # it has to be accessible if descr_fun returned 'global'
+      more <- process_fun(fun)
       more <- more[!processed$contains(more)]
       processing$push_back(more)
     }

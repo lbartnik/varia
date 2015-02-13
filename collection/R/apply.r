@@ -1,23 +1,216 @@
-# accompanied with: locally (to list)
-#                   deferred,
-#                   to_collection(.parallel = getOption('cores', 1) | cluster)
+# --- application: internal functions ----------------------------------
+
+# apply a function to both object and its tags
+c_apply <- function (path, fun) {
+  obj <- readRDS(paste0(path, '.rds'))
+  tgs <- read_tags(path)
+  tryCatch(do.call(fun, list(obj, tgs)),  error = function(e) e)
+}
+
+# apply a function only to tags
+t_apply <- function (path, fun) {
+  tgs <- read_tags(path)
+  tryCatch(do.call(fun, list(tgs)),  error = function(e) e)
+}
+
+# apply to a group of objects and tags
+c_apply_grouped <- function (path, fun) {
+  obj <- lapply(paste0(path, '.rds'), readRDS)
+  tgs <- lapply(path, read_tags)
+  tryCatch(do.call(fun, list(obj, tgs)),  error = function(e) e)
+}
+
+# apply to a group of tags
+t_apply_grouped <- function (path, fun) {
+  tgs <- lapply(path, read_tags)
+  tryCatch(do.call(fun, list(tgs)),  error = function(e) e)
+}
+
+
+# apply function to a list of paths
+run_function <- function (col, wrapper, user, cores) {
+  files <- file.path(path(col), make_path(col))
+  res   <- run_in_parallel(files, wrapper, user, cores)
+  names(res) <- as.character(col) # ids as names but remove attributes from col
+  res
+}
+
+#' @importFrom dplyr do
+run_function_grouped <- function (col, wrapper, user, cores) {
+  # read and group paths
+  grp <- attr(col, 'grouped')
+  grp$.file <- file.path(path(col), make_path(col))
+  files <- do(grp, .files = .$.file)$.files # a list of vectors
+  
+  # execute
+  res <- run_in_parallel(files, wrapper, user, cores)
+  
+  # merge grouping labels, separated with a dot
+  lb <- attr(attr(col, 'grouped'), 'labels')
+  names(res) <- do.call(paste, c(as.list(lb), list(sep = '.')))
+
+  res
+}
+
+#' run function in parallel; hide the backend
+#' @importFrom parallel mclapply
+run_in_parallel <- function (inputs, wrapper, user, cores) {
+  if (cores > 1)
+    res <- mclapply(inputs, wrapper, fun = user, mc.cores = cores)
+  else
+    res <- lapply(inputs, wrapper, fun = user)
+  
+  names(res) <- basename(inputs)
+  res
+}
+
+
+is_ply_result <- function (x) inherits(x, 'ply_result')
+
+# assumes `outputs` to be a list of valid resutls mixed with error objects
+as_ply_result <- function (outputs) {
+  # separate errors & correct results
+  I <- vapply(outputs, is_error, logical(1))
+  
+  err <- if (any(I)) outputs[I] else list()
+  res <- if (any(!I)) outputs[!I] else list()
+  
+  list(res = res, err = err)
+}
+
+#' @export
+print.ply_result <- function (x) {
+  err <- attr(x, 'errors')
+  
+  # no errors case
+  if (!length(err)) {
+    cat('*ply result: no errors\n')
+  }
+  else {
+    # there are errors
+    cat('*ply result - with', length(err), 'error(s):\n')
+    cat('1: ', err[[1]]$message, 'in', deparse(err[[1]]$call), '\n')
+    if (length(err) > 1)
+      cat('...\n')
+  }
+  
+  attr(x, 'errors') <- NULL
+  print(`class<-`(x, class(x)[-1])) # remove ply_result class
+}
+
+
+# --- application: public API ------------------------------------------
+
 #' @export
 cply <- function (col, fun) {
   stopifnot(is_collection(col))
   stopifnot(is.function(fun))
-  
-  structure(list(collection = col, fun = fun), class = 'ply_task')
+  structure(list(collection = col, fun = fun), class = c('cply', 'ply_task'))
+}
+
+#' @export
+tply <- function (col, fun) {
+  stopifnot(is_collection(col))
+  stopifnot(is.function(fun))
+  structure(list(collection = col, fun = fun), class = c('tply', 'ply_task'))
 }
 
 is_ply_task <- function (x) inherits(x, 'ply_task')
 
+#' @export
+print.ply_task <- function (x) {
+  cat('*ply task')
+  cat('\n collection: ', collection_name(x$col))
+  cat('\n function  : ', deparse(body(x$fun)))
+}
+
+
+# --- application: execute the task ------------------------------------
 
 #' @export
-#' @importFrom parallel mclapply
-#' @importFrom dplyr %>%
 locally <- function (task, cores = getOption('cores', 1)) {
   stopifnot(is_ply_task(task))
-  apply_fun(task$col, function(path)run_fun(task$fun, path), cores)
+  
+  if (is_grouped(task$col)) {
+    fun <- if (inherits(task, 'cply')) c_apply_grouped else t_apply_grouped
+    res <- run_function_grouped(task$col, fun, task$fun, cores)
+  }
+  else {
+    fun <- if (inherits(task, 'cply')) c_apply else t_apply
+    res <- run_function(task$col, fun, task$fun, cores)
+  }
+  
+  y <- as_ply_result(res)
+  structure(y$res, 'errors' = y$err, class = 'ply_result')
+}
+
+
+#' Apply task and store results.
+#'
+#' Applies \code{task} to collection specified there and stores results
+#' in another collection \code{dest}.
+#' 
+#' If the user-provided function returns a \code{NULL} value, then the
+#' output object is not stored.
+#' 
+#' @param task Object crate by \code{\link{cply}}.
+#' @param dest Destination \code{\link{collection}}.
+#' @param .parallel A positive \code{numeric} means the number of cores to be used.
+#' @return A \code{\link{collection}} consisting of the newly created objects.
+#'
+#' @seealso \code{\link{cply}} \code{\link{locally}} \code{\link{with_tags}}
+#' @export
+#' @importFrom plyr defaults
+to_collection <- function (task, dest, .parallel = getOption('cores', 1)) {
+  # it has to be a collection-level task, not a tag-level one, bc
+  # the user function is expected to return objects _with_ tags, not
+  # tags only
+  stopifnot(is_ply_task(task))
+  stopifnot(inherits(task, 'cply'))
+  stopifnot(is_collection(dest))
+  
+  # TODO remove in future but for now dest must be different from src
+  stopifnot(!identical(task$col, dest))
+  
+  # local case
+  if (is.numeric(.parallel)) {
+    inner_fun <- if (is_grouped(task$col)) c_apply_grouped else c_apply
+    
+    # outer function saves objects to `dest` and returns identifiers
+    outer_fun <- function(path, fun) {
+        res <- inner_fun(path, fun)
+        if (is_error(res) || is.null(res)) return(res)
+        
+        tags <- list(`.src_id` = basename(path), `.src_col` = path(task$col))
+        if (has_tags(res))
+          tags <- defaults(tags, attr(res, 'tags'))
+        
+        as.character(add_object_(dest, no_tags(res), .tags = tags)) # return the id
+      }
+    
+    if (is_grouped(task$col))
+      res <- run_function_grouped(task$col, outer_fun, task$fun, .parallel)
+    else
+      res <- run_function(task$col, outer_fun, task$fun, .parallel)
+    
+    # notify user
+    message("collection has changed, refresh the 'dest' object")
+    
+    # separate OKs from errors
+    y <- as_ply_result(res)
+    
+    # remove NULLs
+    ids <- y$res[!vapply(y$res, is.null, logical(1))]
+    ids <- unlist(ids)
+    
+    # TODO maybe add ids to whatever is in dest; or make sure that dest is empty!
+    #      it does not make semantical sense any other way
+    return(structure(ids, path = path(dest), errors = y$err,
+                     class = c('ply_result', 'collection')))
+  }
+  
+  # TODO other cases
+  stop('only numeric .parallel is supported now')
 }
 
 
@@ -32,153 +225,34 @@ deferred <- function (task) {
 }
 
 
-#' @export
-#' @importFrom plyr defaults
-to_collection <- function (task, dest, .parallel = getOption('cores', 1)) {
-  stopifnot(is_ply_task(task))
-  stopifnot(is_collection(dest))
-  stopifnot(!identical(task$col, dest)) # TODO remove in future but for now dest must be different from src
-  
-  # local case
-  if (is.numeric(.parallel)) {
-    # replace the function: save results to dest
-    fun <-
-      function(path) {
-        res <- run_fun(task$fun, path)
-        if (is_error(res)) return(res)
-        
-        # add tags if present in the result
-        tags <- c(src_id = basename(path), src_col = path(task$col))
-        if (has_tags(res))
-          tags <- defaults(tags, attr(res, 'tags'))
-        
-        # add object to dest and return its id
-        id <- add_(dest, no_tags(res), .dots = tags)
-        as.character(id)
-      }
-    
-    # apply the modified function
-    new_col <- apply_fun(task$col, fun, .parallel)
-    
-    # it is a ply_result but a collection too
-    return(structure(new_col,
-                     class = c(class(new_col), 'collection'),
-                     path = path(col)))
-  }
-  
-  # TODO other cases
-  stop('only numeric .parallel is supported now')
-}
+# --- application: shortcuts -------------------------------------------
 
+# TODO add ... to cxply and to cply; it will have to be stored in ply_task (???)
+# TODO add .progress
 
-# just load the data and run user function
-run_fun <- function (fun, path) {
-  obj <- readRDS(paste0(path, '.rds'))
-  tgs <- readRDS(paste0(path, '_tags.rds'))
-  tryCatch(
-    do.call(fun, list(obj, tgs)),
-    error = function(e) e
-  )
-}
-
-
-#' @import parallelFrom mclapply
-apply_fun <- function (col, fun, cores) {
-  files <- file.path(path(col), make_path(col))
-  
-  # apply in parallel
-  res <-
-    if (cores > 1)
-      mclapply(files, fun, mc.cores = cores)
-    else
-      lapply(files, fun)
-  
-  # ids as names but remove attributes from col
-  names(res) <- as.character(col)
-  
-  # separate errors & correct results
-  I <- vapply(res, is_error, logical(1))
-  
-  err <- if (any(I)) vapply(res[I], function(e)e$message, character(1)) else character(0)
-  res <- if (any(!I)) res[!I] else list()
-  
-  # move errors to an attribute
-  attr(res, 'errors') <- err
-  attr(res, 'source') <- path(col)
-  class(res) <- c('ply_result', class(res))
-  
-  res
-}
-
-
-
-
-#' @export
-print.ply_result <- function (x) {
-  err <- attr(x, 'errors')
-  
-  # no errors case
-  if (!length(err)) {
-    cat('*ply result: no errors\n')
-  }
-  else {
-    # there are errors
-    cat('*ply result - with', length(err), 'error(s):\n')
-    cat('1: ', err[1], if(length(err)>1)'\n...', '\n')
-  }
-  
-  attr(x, 'errors') <- NULL
-  print(`class<-`(x, class(x)[-1])) # remove ply_result class
-}
-
-
-
-
-# --- old ply ----------------------------------------------------------
-
-#' @importFrom parallel mclapply
 #' @importFrom dplyr %>%
-cxply <- function (col, fun, cores = getOption('cores', 1), plyrfun) {
-  stopifnot(is_collection(col))
-  stopifnot(is.function(fun))
+cxply <- function (col, fun, cores = getOption('cores', 1)) {
+  res <- cply(col, fun) %>% locally(cores)
+  err <- attr(res, 'errors')
+  res <- plyrfun(res)
   
-  res <-
-    file.path(path(col), make_path(col)) %>%
-    mclapply(function (path) {
-      obj <- readRDS(paste0(path, '.rds'))
-      tgs <- readRDS(paste0(path, '_tags.rds'))
-      tryCatch(
-        do.call(fun, list(obj, tgs)),
-        error = function(e) e
-      )
-    }, mc.cores = cores)
-  names(res) <- col[] # remove attributes
+  if (is_ply_result(res))
+    return(res)
   
-  # move errors to attribute
-  I <- vapply(res, function(e)inherits(e, 'error'), logical(1))
-  
-  err <- if (any(I)) vapply(res[I], function(e)e$message, character(1)) else character(0)
-  res <- if (any(!I)) plyrfun(res[!I])[] else list()
-  
-  attr(res, 'errors') <- err
-  class(res) <- c('ply_result', class(res))
-  res
+  structure(res, errors = err, class = c('ply_result', class(res)))
 }
-
 
 create_ply <- function(plyrfun) {
-  plyrfun <- deparse(substitute(plyrfun))
-  fun <- substitute(
-          function (col, fun, cores = getOption('cores', 1))
-            cxply(col, fun, cores, x),
-          list(x = as.name(plyrfun))
-         )
-  fun <- parse(text = deparse(fun)) # eval(substitute(...)) doesn't work without it
-  eval(fun, envir = parent.frame())
+  repl <- substitute(plyrfun)  
+  expr <- substitute(substitute(zzz, list(plyrfun = repl)), list(zzz = body(cxply)))
+  as.function(c(formals(cxply), eval(expr)), envir = parent.frame())
 }
 
 #' Apply a \code{function} to every object/tagset in collection.
+#' 
 #' @export
+#' @importFrom plyr laply ldply llply l_ply
+#' 
 #' @examples
 #' \dontrun{
 #' col <- collection('sample-col')
@@ -205,77 +279,3 @@ c_ply <- create_ply(l_ply)
 objects <- function (col) {
   clply(col, function(o, t) o)
 }
-
-
-
-# --- experimental -----------------------------------------------------
-
-if (F) {
-
-#' @export
-oply <- function (col, what) {
-  w <- substitute(what)
-  e <- parent.frame()
-  l <- lazy_(w, e)
-  oply_(col, l)
-}
-
-#' @export
-oply_ <- function (col, lazy_obj) {
-  p <- package_(lazy_obj, alist(object=))
-  p$data <- col
-  class(p) <- c('oply', 'ply_pkg', class(p))
-  p
-}
-
-
-is_ply_pkg <- function (x) inherits(x, 'ply_pkg')
-
-#' @export
-print.ply_pkg <- function (x) {
-  cat('data-apply package\n')
-  cat('* data: ', path(x$data), '\n')
-  print(x$data)
-  cat('\n* code:\n')
-  print(`class<-`(x, 'eval_pkg'))
-}
-
-run_ply <- function (x, path) UseMethod('run_ply')
-
-run_ply.default <- function (x, path) {
-  stop('do not know how to run object of class: ',
-       paste(class(x), collapse = ' '),
-       call. = FALSE)
-}
-
-run_ply.oply <- function (x, path) {
-  obj <- readRDS(paste0(path, '.rds'))
-  pkg_eval(x, list(object = obj))
-}
-run_ply.tply <- function (x, path) {
-  tgs <- readRDS(paste0(path, '_tags.rds'))
-  pkg_eval(x, list(tags = tgs))
-}
-run_ply.bply <- function (x, path) {
-  obj <- readRDS(paste0(path, '.rds'))
-  tgs <- readRDS(paste0(path, '_tags.rds'))
-  pkg_eval(x, list(object = obj, tags = tgs))
-}
-
-
-
-#' @export
-#' @importFrom parallel mclapply
-#' @importFrom dplyr %>%
-to_ram <- function (pkg, cores = 1) {
-  stopifnot(is_ply_pkg(pkg))
-
-  res <-
-    file.path(path(pkg$data), make_path(pkg$data)) %>%
-    mclapply(function(path)run_ply(pkg, path),
-             mc.cores = cores)
-  
-  res
-}
-
-} # if (F)

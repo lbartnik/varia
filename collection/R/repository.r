@@ -1,26 +1,44 @@
+#' Read or create a repository.
+#' 
+#' @param path Repository path.
+#' @param .create If \code{path} does exist, create a new repository.
+#' @return Object of class \emph{repository}.
+#' 
 #' @export
-repository <- function (path) {
-  stopifnot(is_dir(path))
+repository <- function (path, .create = FALSE) {
+  if (!file.exists(path)) {
+    if (!.create) stop('path does not exist but .create is FALSE', call. = FALSE)
+    dir.create(path)
+  }
+  else if (!is_dir(path)) {
+    stop('path does not point to a directory', call. = FALSE)
+  }
+  else if (.create) {
+    warning('directory already exists but .create is TRUE', call. = FALSE)
+  }
+  
+  # TODO maybe some basic checks?
+  
   structure(path, class = 'repository')
 }
 
-#' @export
-create_repository <- function (path) {
-  stopifnot(!file.exists(path))
-  dir.create(path)
-  repository(path)
-}
 
 is_repository <- function (x) inherits(x, 'repository')
 
 
+#' @rdname collection
 #' @export
-add_collection <- function (repo, name, comment = '') {
-  stopifnot(is_repository(repo))
-  
+collection.repository <- function (repo, name, comment, .create = FALSE) {
   dir_name <- file.path(repo, hash32(name))
-  if (is_dir(dir_name))
-    stop('collection already exists', call. = FALSE)
+  
+  # if directory exists just return the object; comment and .create are discarded
+  if (is_dir(dir_name)) {
+    if (.create) warning('collection already exists but .create is TRUE', call. = FALSE)
+    return(collection(dir_name))
+  }
+
+  # if does not exist, .create must be TRUE
+  if (!.create) stop('no such collection in repository and .create is FALSE', call. = FALSE)
   
   col <- create_collection(dir_name, comment)
   saveRDS(name, paste0(dir_name, '.rds'))
@@ -28,13 +46,6 @@ add_collection <- function (repo, name, comment = '') {
   col
 }
 
-#' @export
-collection.repository <- function (repo, name) {
-  dir_name <- file.path(repo, hash32(name))
-  if (!is_dir(dir_name))
-    stop('no such collection in repository', call. = FALSE)
-  collection(dir_name)
-}
 
 list_collections <- function (repo) {
   stopifnot(is_repository(repo))
@@ -73,9 +84,7 @@ list_collections <- function (repo) {
 #' @export
 print.repository <- function (repo) {
   # title line - repository path
-  splt <- function (x) { if (dirname(x) != x) c(basename(x), Recall(dirname(x))) } # reversed
-  path <- splt(normalizePath(repo))
-  name <- do.call(file.path, as.list(rev(if (length(path)>2) c(path[1:2], '...') else path)))
+  name <- path_to_name(normalizePath(repo), 2)
   
   cat("repository in '", name, "/'", sep = '')
   
