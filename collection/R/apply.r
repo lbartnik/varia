@@ -101,18 +101,60 @@ print.ply_result <- function (x) {
 
 # --- application: public API ------------------------------------------
 
+#' Create apply task.
+#' 
+#' Make ready to run the given expressino on every object in the
+#' collection. This function creates a task which consists of the
+#' collection itself and a \code{\link[lazyeval]{lazy}} object
+#' containing the expression.
+#' 
+#' The task can be evaluated with either of: \code{\link{locally}},
+#' \code{\link{to_collection}} or \code{\link{deferred}} combined
+#' with \code{\link{run_deferred}} run on a remote host.
+#' 
+#' \code{cply} applies \code{expr} to every object-tags pair.
+#' 
+#' @param col Collection to apply \code{expr} to.
+#' @param expr Expression to be run; see \code{\link{package}}.
+#' @return A \emph{ply_task} object.
+#' 
 #' @export
-cply <- function (col, fun) {
-  stopifnot(is_collection(col))
-  stopifnot(is.function(fun))
-  structure(list(collection = col, fun = fun), class = c('cply', 'ply_task'))
+#' @importFrom lazyeval lazy_
+cply <- function (col, expr) {
+  expr <- substitute(expr)
+  env  <- parent.frame()
+  cply_(col, lazy_(expr, env))
 }
 
+#' @param lazy_obj Lazy object with the unevaluated \code{expr}.
+#' @rdname cply
 #' @export
-tply <- function (col, fun) {
+cply_ <- function (col, lazy_obj) {
+  make_ply(col, lazy_obj, 'cply')
+}
+
+#' \code{tply} applies \code{expr} on all tags.
+#' 
+#' @rdname cply
+#' @export
+#' @importFrom lazyeval lazy_
+tply <- function (col, expr) {
+  expr <- substitute(expr)
+  env  <- parent.frame()
+  tply_(col, lazy_(expr, env))  
+}
+
+#' @rdname cply
+#' @export
+tply_ <- function (col, lazy_obj) {
+  make_ply(col, lazy_obj, 'cply')
+}
+
+make_ply <- function (col, lazy_obj, task_class) {
   stopifnot(is_collection(col))
-  stopifnot(is.function(fun))
-  structure(list(collection = col, fun = fun), class = c('tply', 'ply_task'))
+  stopifnot(is_lazy(lazy_obj))
+  structure(list(collection = col, lazy_obj = lazy_obj),
+            class = c(task_class, 'ply_task'))
 }
 
 is_ply_task <- function (x) inherits(x, 'ply_task')
@@ -127,17 +169,27 @@ print.ply_task <- function (x) {
 
 # --- application: execute the task ------------------------------------
 
+
+# TODO the next step will be to move parts of package() here
+extract_user_code <- function (lazy_obj) {
+  if (is_funexpr(lazy_obj$expr))
+    stop('block of code is not supported yet', call. = FALSE)
+  lazy_eval(lazy_obj)
+}
+
 #' @export
 locally <- function (task, cores = getOption('cores', 1)) {
   stopifnot(is_ply_task(task))
   
+  user <- extract_user_code(task$lazy_obj)
+  
   if (is_grouped(task$col)) {
     fun <- if (inherits(task, 'cply')) c_apply_grouped else t_apply_grouped
-    res <- run_function_grouped(task$col, fun, task$fun, cores)
+    res <- run_function_grouped(task$col, fun, user, cores)
   }
   else {
     fun <- if (inherits(task, 'cply')) c_apply else t_apply
-    res <- run_function(task$col, fun, task$fun, cores)
+    res <- run_function(task$col, fun, user, cores)
   }
   
   y <- as_ply_result(res)
@@ -175,6 +227,7 @@ to_collection <- function (task, dest, .parallel = getOption('cores', 1)) {
   # local case
   if (is.numeric(.parallel)) {
     inner_fun <- if (is_grouped(task$col)) c_apply_grouped else c_apply
+    user_fun  <- extract_user_code(task$lazy_obj)
     
     # outer function saves objects to `dest` and returns identifiers
     outer_fun <- function(path, fun) {
@@ -189,9 +242,9 @@ to_collection <- function (task, dest, .parallel = getOption('cores', 1)) {
       }
     
     if (is_grouped(task$col))
-      res <- run_function_grouped(task$col, outer_fun, task$fun, .parallel)
+      res <- run_function_grouped(task$col, outer_fun, user_fun, .parallel)
     else
-      res <- run_function(task$col, outer_fun, task$fun, .parallel)
+      res <- run_function(task$col, outer_fun, user_fun, .parallel)
     
     # notify user
     message("collection has changed, refresh the 'dest' object")
@@ -218,10 +271,12 @@ to_collection <- function (task, dest, .parallel = getOption('cores', 1)) {
 deferred <- function (task) {
   # TODO should be carried with task
   env <- parent.frame()
-  # TODO won't work with library funs referred to by name
-  pkg <- package_(lazy_(task$fun, env))
-  
-  structure(list(col = task$col, pkg = pkg), class = c('deferred_task', 'ply_task'))
+  # TODO add dependencies to task$lazy_obj; user extract_user_code as the first step,
+  #      the call get_dependencies on its result
+  # pkg <- package_(...)
+  #
+  #structure(list(col = task$col, pkg = pkg), class = c('deferred_task', 'ply_task'))
+  stop('not supported yet', call. = FALSE)
 }
 
 

@@ -18,6 +18,8 @@ path <- function (x) {
 
 is_error <- function (x) inherits(x, 'error')
 
+is_lazy <- function (x) inherits(x, 'lazy')
+
 # split path
 split_path <- function (x) {
   stopifnot(is.character(x))

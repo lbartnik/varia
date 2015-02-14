@@ -1,0 +1,8 @@
+* fix this (random) error:
+   ply result - with 1 error(s):
+   1:  subscript out of bounds in .subset2(x, i, exact = exact) 
+
+* replace underlying collection object
+  it is a character vector now, but it should be a data_frame;
+  it will then allow for arranging, filtering, grouping and
+  joining collections, as long as the tags are there
