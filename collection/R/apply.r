@@ -120,6 +120,13 @@ print.ply_result <- function (x) {
 #' 
 #' @export
 #' @importFrom lazyeval lazy_
+#' 
+#' @examples
+#' \dontrun{
+#' cply(col, function (object, tags) {
+#'   # do something with object & tags
+#' })
+#' }
 cply <- function (col, expr) {
   expr <- substitute(expr)
   env  <- parent.frame()
@@ -133,11 +140,18 @@ cply_ <- function (col, lazy_obj) {
   make_ply(col, lazy_obj, 'cply')
 }
 
-#' \code{tply} applies \code{expr} on all tags.
+#' @details \code{tply} applies \code{expr} to all tags.
 #' 
 #' @rdname cply
 #' @export
 #' @importFrom lazyeval lazy_
+#' 
+#' @examples
+#' \dontrun{
+#' tply(col, function (tags) {
+#'   # do something with tags
+#' })
+#' }
 tply <- function (col, expr) {
   expr <- substitute(expr)
   env  <- parent.frame()
