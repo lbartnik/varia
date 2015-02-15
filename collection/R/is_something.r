@@ -1,5 +1,3 @@
-is_lazy <- function(x) inherits(x, "lazy")
-
 is_fundef <- function(x) {
   is.call(x) && identical(x[[1]], quote(`function`))
 }

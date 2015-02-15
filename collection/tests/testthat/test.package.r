@@ -1,24 +1,6 @@
 context("package")
 
 
-test_that("dependencies", {
-  load_or_skip(dplyr)
-  
-  # standard library
-  expect_equal(extract_calls(call('mean')), data_frame(lib = 'base', fun = 'mean'))
-  expect_equal(extract_calls(call('summary')), data_frame(lib = 'base', fun = 'summary'))
-  
-  # some env, not global not namespace
-  fun <- function(x)x
-  environment(fun) <- globalenv()
-  expect_equal(extract_calls(call('fun')), data_frame(lib = 'global', fun = 'fun'))
-  
-  # function from library
-  expect_equal(extract_calls(call('dplyr::filter')),
-               data_frame(lib = 'dplyr', fun = 'filter'))
-})
-
-
 test_that("base funcs", {
   load_or_skip(dplyr, devtools)
   

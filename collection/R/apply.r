@@ -183,20 +183,20 @@ print.ply_task <- function (x) {
 
 # --- application: execute the task ------------------------------------
 
-
-# TODO the next step will be to move parts of package() here
-extract_user_code <- function (lazy_obj) {
-  if (is_funexpr(lazy_obj$expr))
-    stop('block of code is not supported yet', call. = FALSE)
-  lazy_eval(lazy_obj)
+# prepare the user object
+prepare_user_fun <- function (task) {
+  args <- if (inherits(task, 'cply')) alist(obj=, tags=) else alist(tags=)
+  prepare_user_object(task$lazy_obj, args)
 }
 
 #' @export
 locally <- function (task, cores = getOption('cores', 1)) {
   stopifnot(is_ply_task(task))
   
-  user <- extract_user_code(task$lazy_obj)
+  # prepare the user object
+  user <- prepare_user_fun(task)
   
+  # run the user object in the require fashion
   if (is_grouped(task$col)) {
     fun <- if (inherits(task, 'cply')) c_apply_grouped else t_apply_grouped
     res <- run_function_grouped(task$col, fun, user, cores)
@@ -241,7 +241,7 @@ to_collection <- function (task, dest, .parallel = getOption('cores', 1)) {
   # local case
   if (is.numeric(.parallel)) {
     inner_fun <- if (is_grouped(task$col)) c_apply_grouped else c_apply
-    user_fun  <- extract_user_code(task$lazy_obj)
+    user_fun  <- prepare_user_fun(task)
     
     # outer function saves objects to `dest` and returns identifiers
     outer_fun <- function(path, fun) {

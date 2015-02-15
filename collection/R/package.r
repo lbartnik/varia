@@ -230,14 +230,14 @@ extract_calls <- function (obj, env = parent.frame()) {
     processed$push_back(name)
     
     # search for the function in the environment enclosing the expression
-    tmpf <- descr_fun(name, env)
+    tmpf <- locate_function(name, env)
     
     # function not found
     if (is.na(tmpf$lib)) next
     
     # if global search for more dependencies
     if (tmpf$lib == 'global') {
-      fun  <- get(name, envir = env) # it has to be accessible if descr_fun returned 'global'
+      fun  <- get(name, envir = env) # it has to be accessible if locate_function returned 'global'
       more <- process_fun(fun)
       more <- more[!processed$contains(more)]
       processing$push_back(more)
@@ -256,93 +256,3 @@ extract_calls <- function (obj, env = parent.frame()) {
   # make a list for each package; drop all attributes but names
   fns
 }
-
-
-# from testthat:mock.r
-pkg_rx <- ".*[^:]"
-colons_rx <- "::(?:[:]?)"
-name_rx <- ".*"
-pkg_and_name_rx <- sprintf("^(?:(%s)%s)?(%s)$", pkg_rx, colons_rx, name_rx)
-
-#' Build a function description.
-#' 
-#' @param fun_name Function name.
-#' @param env Start searching in this \code{environment}.
-#' @return A \code{list} with two elements: \emph{pkg} package name
-#'         and function \emph{name}.
-descr_fun <- function (fun_name, env = globalenv()) {
-  stopifnot(is.character(fun_name))
-
-  pkg_name <- gsub(pkg_and_name_rx, "\\1", fun_name)
-  name <- gsub(pkg_and_name_rx, "\\2", fun_name)
-  
-  # if package is given explicitely
-  if (pkg_name != '') return(list(lib = pkg_name, fun = name))
-  
-  # try to access function and determine its environment
-  # start searching in 'env'
-  f <- tryCatch(get(name, envir = env), error = function(x)'not-accessible')
-  
-  # error
-  if (!is.function(f)) {
-    warning('could not find function: ', fun_name)
-    return(list(lib = NA, fun = name))
-  }
-  
-  # primitive
-  if (is.primitive(f)) return(list(lib = 'primitive', fun = name))
-  
-  # not primitive; if the top-env is global (simple case) or identical
-  # closure exists in global env (e.g. result of plyr::each) then assume
-  # it should be stored in the package
-  e <- get_env(f)
-  g <- try(get(name, envir = globalenv(), inherits = F, mode = 'function'), silent = T)
-  if (identical(e, globalenv()) || identical(f, g))
-    return(list(lib = 'global', fun = name))
-  
-  if (!nchar(environmentName(e)))
-    warning('could not determine environment name for: ', fun_name)
-  
-  # some package
-  list(lib = environmentName(e), fun = name)
-}
-
-
-# find a named environment: necessary when dealing with closures
-get_env <- function (fun) {
-  e <- environment(fun)
-  while(nchar(environmentName(e)) == 0) {
-    e <- parent.env(e)
-  }
-  e
-}
-
-
-# from https://stackoverflow.com/questions/14276728/finding-the-names-of-all-functions-in-an-r-expression/14295659#14295659
-find_calls <- function(x) {
-  # Base case
-  if (!is.recursive(x)) return(character())
-  
-  recurse <- function(x) {
-    sort(unique(as.character(unlist(lapply(x, find_calls)))))
-  }
-  
-  if (!is.call(x)) return(recurse(x))
-  
-  # x[[1]] is a name
-  if (!is.call(x[[1]])) {
-    f_name <- as.character(x[[1]])
-    return(c(f_name, recurse(x[-1])))
-  }
-  
-  # x[[1]] is a call
-  y <- x[[1]]
-  if (identical(y[[1]], as.name('::')) || identical(y[[1]], as.name(':::'))) { # TODO use is_colexpr
-    f_name <- deparse(y)
-    return(c(f_name, recurse(x[-1])))
-  }
-  
-  # default from the original version; something other than :: and :::
-  c(as.character(x[[1]]), recurse[-1])
-}
-
