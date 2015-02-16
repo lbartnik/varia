@@ -183,13 +183,29 @@ print.ply_task <- function (x) {
 
 # --- application: execute the task ------------------------------------
 
-# prepare the user object
+# returns the list of formal arguments matching the type of the task
 determine_formals <- function (task) {
   if (inherits(task, 'cply')) alist(obj=, tags=) else alist(tags=)
 }
 
 
+#' Run the task locally.
+#' 
+#' @param task A \emph{ply_task} object.
+#' @param cores Number of sub-processes to spawn.
+#' @return A \code{list} of results.
+#' 
 #' @export
+#' @seealso \code{\link{cply}} \code{\link{to_collection}} \code{\link{deferred}}
+#'   \code{\link{create_sample_collection}}
+#' 
+#' @examples
+#' # create and fill a sample collection
+#' col <- create_sample_collection()
+#' 
+#' task <- cply(col, function(x)x**2)
+#' res  <- locally(task, cores = 2)
+#' 
 locally <- function (task, cores = getOption('cores', 1)) {
   stopifnot(is_ply_task(task))
   
@@ -224,7 +240,8 @@ locally <- function (task, cores = getOption('cores', 1)) {
 #' @param .parallel A positive \code{numeric} means the number of cores to be used.
 #' @return A \code{\link{collection}} consisting of the newly created objects.
 #'
-#' @seealso \code{\link{cply}} \code{\link{locally}} \code{\link{with_tags}}
+#' @seealso \code{\link{cply}} \code{\link{locally}} \code{\link{with_tags}} \code{\link{deferred}}
+#' 
 #' @export
 #' @importFrom plyr defaults
 to_collection <- function (task, dest, .parallel = getOption('cores', 1)) {
@@ -281,11 +298,42 @@ to_collection <- function (task, dest, .parallel = getOption('cores', 1)) {
 }
 
 
+#' Creates a deferred task.
+#' 
+#' Creates a \emph{deferred_task} object which contains the user code
+#' and its dependencies. It can be serialized and sent to a remote host
+#' for execution.
+#' 
+#' @param task A \emph{ply_task} object.
+#' @return A \emph{deferred_task} object.
+#' 
+#' @seealso \code{\link{cply}}
+#' 
 #' @export
+#' @examples
+#' col <- create_sample_collection()
+#' task <- cply(col, function(x)x**2)
+#' dfrd <- deferred(task)
+#' saveRDS(dfrd, 'deferred_task.rds')
+#' 
+#' # on a remote host, given that the data is available there
+#' dfrd <- readRDS('deferred_task.rds')
+#' run_deferred(dfrd)
 deferred <- function (task) {
   user <- prepare_user_fun(task)
   pkg  <- package_(task$lazy_obj, determine_formals(task))
   structure(list(col = task$col, package = pkg), class = 'deferred_task')
+}
+
+
+#' @details \code{run_deferred} creates a new environment where all the
+#' dependencies are re-created, and then the user code is run.
+#' 
+#' @param deferred_task A \emph{deferred_task} object.
+#' @rdname deferred
+#' @export
+run_deferred <- function (deferred_task) {
+  stop('not implemented yet', call. = FALSE)
 }
 
 
