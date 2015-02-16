@@ -1,5 +1,5 @@
 check_basic_pkg <- function (pkg, ndeps, nglb) {
-  expect_equal(names(pkg), c('deps', 'global'))
+  expect_equal(names(pkg), c('deps', 'globals'))
   
   if (ndeps) {
     expect_equal(nrow(pkg$deps), ndeps)
@@ -7,10 +7,10 @@ check_basic_pkg <- function (pkg, ndeps, nglb) {
   }
   
   if (nglb) {
-    expect_equal(nrow(pkg$global), nglb)
-    expect_named(pkg$global, c('name', 'fun', 'env'))
-    expect_true(is.character(pkg$global$name))
-    expect_true(is.list(pkg$global$fun))
-    expect_true(is.list(pkg$global$env))
+    expect_equal(nrow(pkg$globals), nglb)
+    expect_named(pkg$globals, c('name', 'fun', 'env'))
+    expect_true(is.character(pkg$globals$name))
+    expect_true(is.list(pkg$globals$fun))
+    expect_true(is.list(pkg$globals$env))
   }
 }

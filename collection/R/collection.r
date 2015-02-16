@@ -273,12 +273,13 @@ list_objects <- function (col, n = min(10, length(col))) {
 #' @importFrom lazyeval lazy_dots
 add_object <- function (col, obj, ...,  .tags, .overwrite = F) {
   dots <- lazy_dots(...)
+  res <- add_object_(col, obj, .dots = dots, .tags = .tags, .overwrite = .overwrite)
   
   # notify user only in the interactive version of "add"
   if (identical(parent.frame(), globalenv()))
     message("collection has changed, refresh it")
   
-  add_object_(col, obj, .dots = dots, .tags = .tags, .overwrite = .overwrite)
+  res
 }
 
 
@@ -354,7 +355,9 @@ filter_.collection <- function (col, .dots, cores = getOption('cores', 1)) {
   }, cores)
   
   res <- as_ply_result(res)
-  ids <- names(which(unlist(res$res)))
+  ids <- unlist(res$res)
+  ids <- if (is.null(ids)) list() else names(which(ids))
+  
   structure(ids, path = path(col), errors = res$err,
             class = c('ply_result', 'collection'))
 }

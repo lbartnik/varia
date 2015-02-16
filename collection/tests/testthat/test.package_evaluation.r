@@ -28,13 +28,13 @@ test_that("mocked user-defined evalutation", {
 
 
 test_that('base function', {
-  pkg <- package(summary)
+  pkg <- package(summary, alist(x=))
   expect_equal(pkg_eval(pkg, list(iris)), summary(iris))
 })
 
 test_that('library funtion', {
   load_or_skip(dplyr)
-  pkg <- package(dplyr::filter_)
+  pkg <- package(dplyr::filter_, alist(x=, ...=))
   res <- pkg_eval(pkg, list(iris, .dots = quote(Species == 'virginica')))
   expect_equivalent(res, filter(iris, Species == 'virginica'))
 })
@@ -42,7 +42,7 @@ test_that('library funtion', {
 test_that('user-defined function', {
   fun <- function(x)x*x
   environment(fun) <- globalenv() # when testing function is in a package
-  pkg <- package(fun)
+  pkg <- package(fun, alist(x=))
   expect_equal(pkg_eval(pkg, list(10)), 100)
 })
 

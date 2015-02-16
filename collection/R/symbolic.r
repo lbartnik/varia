@@ -27,7 +27,10 @@ prepare_user_object <- function (lazy_obj, frmls) {
     fun <- function(){}
     body(fun) <- bdy
     formals(fun) <- frmls
-    environment(fun) <- env
+    # we want access global/user objects when running in locally()
+    # or in to_collection(), but we don't want them directly here
+    # if we are serializing this function in deferred()
+    environment(fun) <- new.env(parent = env)
     fun
   }
 
@@ -68,10 +71,12 @@ prepare_user_object <- function (lazy_obj, frmls) {
 
   # TODO maybe we can handle more; if not, make it more explicit
   #      what is supported
-  stop('do not know how to handle this lazy expression',
+  stop('do not know how to handle the lazy expression',
        call. = FALSE)
 }
 
+
+# --- dependencies -----------------------------------------------------
 
 #' @importFrom dplyr bind_rows anti_join data_frame filter arrange
 extract_dependencies <- function (entry_point, env) {
@@ -113,11 +118,11 @@ extract_dependencies <- function (entry_point, env) {
 
 #' Works on function objects.
 #' 
-#' @importFrom plyr ldply
-#' @importFrom dplyr as_data_frame
+#' @importFrom plyr ldply llply
+#' @importFrom dplyr as_data_frame data_frame %>%
 immediate_dependencies <- function (fun, env) {
   if (is_fseq(fun)) {
-    calls <- laply(functions(fun), function(f) find_calls(body(f)))    
+    calls <- llply(functions(fun), function(f) find_calls(body(f))) %>% unlist
   }
   else if (is.function(fun)) {
     calls <- find_calls(body(fun))
@@ -130,7 +135,7 @@ immediate_dependencies <- function (fun, env) {
   calls <- calls[!vapply(calls, function(e)is.na(e$lib), logical(1))]
   
   if (!length(calls)) return(data_frame(lib=character(0), fun=character(0)))
-  ldply(calls, as_data_frame)
+  ldply(calls, as_data_frame, .id = NULL)
 }
 
 # from testthat:mock.r
@@ -227,5 +232,133 @@ find_calls <- function(x) {
   
   # default from the original version; something other than :: and :::
   c(as.character(x[[1]]), recurse[-1])
+}
+
+
+# --- globals ----------------------------------------------------------
+
+is_global_env <- function (x) is.environment(x) && identical(x, globalenv())
+
+
+#' Gathers global objects present in dependencies.
+#' 
+#' Finds all global functions and enclosures and prepares them for
+#' serialization.
+#' 
+#' @importFrom magrittr extract2
+#' @importFrom dplyr filter data_frame %>%
+#' @importFrom plyr ldply
+extract_globals <- function (deps, env) {
+  names <-
+    deps %>%
+    filter(lib == 'global') %>%
+    extract2('fun')
+  funs <-
+    ldply(names, function (name) {
+      fun <- get(name, envir = env)
+      decompose_function(fun)
+    })
+  cbind(data_frame(name = names), funs)
+}
+
+
+#' @importFrom dplyr data_frame
+decompose_function <- function (fun) {
+  # now determine what should be the function's environment
+  # TODO make sure that the environment does not contain function
+  #      which in turn have dependencies outside of this env
+  e <- environment(fun)
+  e <- if (is_global_env(e)) list() else as.list(e)
+  environment(fun) <- emptyenv()
+  data_frame(fun = list(fun), env = list(e))
+}
+
+
+# --- packaging user code ----------------------------------------------
+
+#' Creates an evaluation package.
+#' 
+#' Packages \code{what} and its dependencies, adds info on
+#' packages required to call \code{what}.
+#' 
+#' @param what A \code{function} object or name, a function definition
+#'             or, a \code{\link{magrittr}[pipe]} definition, or a block
+#'             of code.
+#' @param frmls Result of calling either \code{\link{formals}} or
+#'             \code{\link{alist}}.
+#' 
+#' @return An evaluation package object.
+#'
+#' @export
+#' @importFrom lazyeval lazy_
+#' @examples
+#' 
+#' package(mean)
+#' package(summary)
+#' package(function(x)x*x)
+#' package(stats::acf)
+#' package({
+#'   mean(x)
+#' })
+#' 
+package <- function (what, frmls) {
+  # expression can be passed down the call stack
+  x <- substitute(what)
+  e <- parent.frame()
+  package_(lazy_(x, e), frmls)
+}
+
+
+#' @param lazy_obj Lazy object; see \code{\link[lazyeval]{lazy}}
+#' @export
+#' @rdname package
+#' 
+#' @importFrom devtools session_info
+#' @importFrom dplyr filter select %>%
+#' @importFrom plyr alply
+#' @importFrom magrittr extract2 functions
+#
+# TODO what about name conflicts?
+package_ <- function (lazy_obj, frmls) {
+  stopifnot(is_lazy(lazy_obj))
+  
+  user <- prepare_user_object(lazy_obj, frmls)
+  deps <- extract_dependencies(user, lazy_obj$env)
+  
+  glbl <- bind_rows(
+    cbind(name = '__entry__', decompose_function(user)),
+    extract_globals(deps, lazy_obj$env)
+  )
+  
+  pkg  <- structure(list(deps = filter(deps, lib != 'global'),
+                         globals = glbl),
+                    class = 'eval_pkg')
+  
+  # TODO pick packages... versions?...
+  #   pkgs <-
+  #     session_info(include_base = T)$packages %>%
+  #     filter(package %in% names(deps)) %>% # maybe all loaded packages?
+  #     select(package, version)
+  
+  pkg
+}
+
+
+#' @param x An object to be tested.
+#' @export
+#' @rdname package
+is_package <- function (x) inherits(x, 'eval_pkg')
+
+
+#' @export
+print.eval_pkg <- function (x) {
+  cat('eval-package')
+  
+  # entry formals
+  entry <- x$global[x$global$name == '__entry__', ]
+  a <- formals(entry$fun[[1]])
+  n <- names(a); v <- as.character(a)
+  a <- paste0(n, ifelse(nchar(v), " = ", ""), v, collapse = ', ')
+  cat(paste0('(', a, ')'))
 }
 

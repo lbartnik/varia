@@ -184,17 +184,17 @@ print.ply_task <- function (x) {
 # --- application: execute the task ------------------------------------
 
 # prepare the user object
-prepare_user_fun <- function (task) {
-  args <- if (inherits(task, 'cply')) alist(obj=, tags=) else alist(tags=)
-  prepare_user_object(task$lazy_obj, args)
+determine_formals <- function (task) {
+  if (inherits(task, 'cply')) alist(obj=, tags=) else alist(tags=)
 }
+
 
 #' @export
 locally <- function (task, cores = getOption('cores', 1)) {
   stopifnot(is_ply_task(task))
   
   # prepare the user object
-  user <- prepare_user_fun(task)
+  user <- prepare_user_object(task$lazy_obj, determine_formals(task))
   
   # run the user object in the require fashion
   if (is_grouped(task$col)) {
@@ -241,7 +241,7 @@ to_collection <- function (task, dest, .parallel = getOption('cores', 1)) {
   # local case
   if (is.numeric(.parallel)) {
     inner_fun <- if (is_grouped(task$col)) c_apply_grouped else c_apply
-    user_fun  <- prepare_user_fun(task)
+    user_fun  <-prepare_user_object(task$lazy_obj, determine_formals(task))
     
     # outer function saves objects to `dest` and returns identifiers
     outer_fun <- function(path, fun) {
@@ -283,14 +283,9 @@ to_collection <- function (task, dest, .parallel = getOption('cores', 1)) {
 
 #' @export
 deferred <- function (task) {
-  # TODO should be carried with task
-  env <- parent.frame()
-  # TODO add dependencies to task$lazy_obj; user extract_user_code as the first step,
-  #      the call get_dependencies on its result
-  # pkg <- package_(...)
-  #
-  #structure(list(col = task$col, pkg = pkg), class = c('deferred_task', 'ply_task'))
-  stop('not supported yet', call. = FALSE)
+  user <- prepare_user_fun(task)
+  pkg  <- package_(task$lazy_obj, determine_formals(task))
+  structure(list(col = task$col, package = pkg), class = 'deferred_task')
 }
 
 
