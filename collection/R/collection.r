@@ -168,6 +168,8 @@ summary.collection <- function (col, .all = FALSE) {
   comment_path <- file.path(path(col), 'comment.rds')
   comment <- if (file.exists(comment_path)) readRDS(comment_path) else ''
   
+  # TODO handle removed objects
+  
   # sizes
   sizes <- laply(obj_files(col), function(path) file.info(path)$size)
   
@@ -312,11 +314,16 @@ add_object_ <- function (col, obj, .dots, .tags, .overwrite = F) {
   
   # check and combine .dots & .tags
   tags <- if (!missing(.dots)) eval_tags(.dots, obj) else list()
+  check_standard_tags(tags)
   
   if (!missing(.tags)) {
+    check_standard_tags(.tags)
     assert_tags(tags)
     tags <- defaults(tags, .tags)
   }
+  
+  # add .date
+  tags <- add_standard_tags(tags)
   
   # TODO handle tags added with `with_tags`
   
@@ -358,8 +365,13 @@ filter_.collection <- function (col, .dots, cores = getOption('cores', 1)) {
   ids <- unlist(res$res)
   ids <- if (is.null(ids)) list() else names(which(ids))
   
-  structure(ids, path = path(col), errors = res$err,
-            class = c('ply_result', 'collection'))
+  # discard the result if there are any errors
+  if (length(res$err)) {
+    return(structure(character(), errors = res$err, class = 'ply_result'))
+  }
+  
+  # return a new collection if filtering went correctly
+  structure(ids, path = path(col), class = 'collection')
 }
 
 
@@ -413,3 +425,26 @@ is_grouped <- function (col) {
   has_attr(col, 'grouped')
 }
 
+
+# --- reading objects --------------------------------------------------
+
+#' Read object(s) into memory.
+#' 
+#' \code{read_all} reads all objects into a \code{list}.
+#' 
+#' @param col A \emph{collection} object.
+#' 
+#' @export
+read_all <- function (col) {
+  clply(col, function(o, t) o)
+}
+
+
+#' @description \code{read_one} reads one object into memory; there is
+#' no wrapping \code{list}.
+#' @param n Index of the object to be read.
+#' @rdname read_all
+#' @export
+read_one <- function (col, n = 1) {
+  clply(col[n], function(o, t) o)[[1]]
+}

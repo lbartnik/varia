@@ -14,6 +14,18 @@ test_that('simple case', {
 })
 
 
+test_that("tply", {
+  col <- collection('sample-collection')
+  tsk <- tply(col, function (tags) {
+    as.data.frame(tags)
+  })
+  tgs <- do.call(rbind, locally(tsk))
+
+  exp <- data.frame(a = c(1,1,2), b = c(2,3,3), .id = c('1234ab', '1234cd', '1234ef'))
+  expect_equivalent(tgs, exp)
+})
+
+
 test_that('to_collection', {
   repo <- copy_sample_repo()
   src  <- collection(repo, 'sample collection')

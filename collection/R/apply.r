@@ -161,7 +161,7 @@ tply <- function (col, expr) {
 #' @rdname cply
 #' @export
 tply_ <- function (col, lazy_obj) {
-  make_ply(col, lazy_obj, 'cply')
+  make_ply(col, lazy_obj, 'tply')
 }
 
 make_ply <- function (col, lazy_obj, task_class) {
@@ -343,8 +343,8 @@ run_deferred <- function (deferred_task) {
 # TODO add .progress
 
 #' @importFrom dplyr %>%
-cxply <- function (col, fun, cores = getOption('cores', 1)) {
-  res <- cply(col, fun) %>% locally(cores)
+xxply <- function (col, fun, cores = getOption('cores', 1)) {
+  res <- xply(col, fun) %>% locally(cores)
   err <- attr(res, 'errors')
   res <- plyrfun(res)
   
@@ -354,40 +354,71 @@ cxply <- function (col, fun, cores = getOption('cores', 1)) {
   structure(res, errors = err, class = c('ply_result', class(res)))
 }
 
-create_ply <- function(plyrfun) {
-  repl <- substitute(plyrfun)  
-  expr <- substitute(substitute(zzz, list(plyrfun = repl)), list(zzz = body(cxply)))
-  as.function(c(formals(cxply), eval(expr)), envir = parent.frame())
+create_ply <- function(plyfun, plyrfun) {
+  a <- substitute(plyfun)
+  b <- substitute(plyrfun)
+  
+  expr <- substitute(substitute(zzz, list(xply = a, plyrfun = b)), list(zzz = body(xxply)))
+  as.function(c(formals(xxply), eval(expr)), envir = parent.frame())
 }
 
-#' Apply a \code{function} to every object/tagset in collection.
+
+#' Apply a \code{function} to every object and/or tagset in collection.
+#' 
+#' \code{c*ply} functions apply \code{fun} to every pair of object and
+#' tags.
+#' 
+#' \code{t*ply} functions apply \code{fun} only to tags.
+#' 
+#' Internally the output is cast from a \code{list} to the requested
+#' data type with a respective function from \code{\link[plyr]{plyr}}.
+#' 
+#' @param col A \emph{collection} object.
+#' @param fun A \code{function} object.
+#' @param cores Run \code{fun} on that many cores.
 #' 
 #' @export
 #' @importFrom plyr laply ldply llply l_ply
 #' 
 #' @examples
-#' \dontrun{
-#' col <- collection('sample-col')
-#' cdply(select(col), function (obj, tag) {
+#' col <- create_sample_collection()
+#' cdply(select(col), function (obj, tags) {
 #'   c(dim(obj), length(tag))
 #' })
-#' }
-caply <- create_ply(laply)
+#' 
+#' tdply(select(col), function (tags) {
+#'   as.data.frame(tag)
+#' })
+#' 
+caply <- create_ply(cply, laply)
 
 #' @export
 #' @rdname caply
-cdply <- create_ply(ldply)
+cdply <- create_ply(cply, ldply)
 
 #' @export
 #' @rdname caply
-clply <- create_ply(llply)
+clply <- create_ply(cply, llply)
 
 #' @export
 #' @rdname caply
-c_ply <- create_ply(l_ply)
+c_ply <- create_ply(cply, l_ply)
 
 
 #' @export
-objects <- function (col) {
-  clply(col, function(o, t) o)
-}
+#' @rdname caply
+taply <- create_ply(tply, laply)
+
+#' @export
+#' @rdname caply
+tdply <- create_ply(tply, ldply)
+
+#' @export
+#' @rdname caply
+tlply <- create_ply(tply, llply)
+
+#' @export
+#' @rdname caply
+t_ply <- create_ply(tply, l_ply)
+
+

@@ -84,6 +84,20 @@ check_tags <- function (tags) {
   T
 }
 
+check_standard_tags <- function (tags) {
+  name <- deparse(substitute(tags))
+  stdn <- c('.id', '.date')
+  indx <- stdn %in% names(tags)
+  if (any(indx)) {
+    stop("tag names reserved in '", name, "': ",
+         paste(stdn[indx], sep = ', '), call. = FALSE)
+  }
+}
+
+add_standard_tags <- function (tags) {
+  tags[['.date']] <- Sys.time()
+  tags
+}
 
 # If tags are incorrect, stops execution.
 # If tags are OK, returns them unchanged.
@@ -93,6 +107,13 @@ assert_tags <- function (tags, message = 'tags have to be a named list with sing
 {
   if (!check_tags(tags)) stop(message, call. = FALSE)
   tags
+}
+
+
+# --- various helpers --------------------------------------------------
+
+extract_tags <- function (tags, ...) {
+  
 }
 
 

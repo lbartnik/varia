@@ -26,7 +26,7 @@ test_that('basic operations', {
   expect_true(is.character(x))
   expect_equal(length(x), 2)
   
-  y <- objects(x) # load objects associated with this selection
+  y <- read_all(x) # load objects associated with this selection
   expect_true(1 %in% y)
   expect_true(list(a = 1) %in% y)
   
@@ -44,7 +44,7 @@ test_that('adding with tag', {
   expect_true(is.character(x))
   expect_equal(length(x), 1)
   
-  y <- objects(x)
+  y <- read_all(x)
   expect_equal(length(y), 1)
   expect_true(1 %in% y)
   

@@ -6,3 +6,14 @@
   it is a character vector now, but it should be a data_frame;
   it will then allow for arranging, filtering, grouping and
   joining collections, as long as the tags are there
+
+* process function objects in function environments in package_()
+  serializing functions means storing their environments as lists,
+  but then more functions might be present in these environments
+  and they are not processed in any way right now
+
+* add object tracing: store function used to generate object in
+  a special collection in a repository and add a special tag which
+  will tell how the object was created (in addition to .src* tags)
+
+* errors contain too much details and grow into GB of data
