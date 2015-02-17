@@ -17,3 +17,25 @@
   will tell how the object was created (in addition to .src* tags)
 
 * errors contain too much details and grow into GB of data
+
+* new printing: by default print first n objects in moderate
+  detail; use list_objects for more verbose output;
+  something similar for repositories
+
+* cache: store basic details about collections and repositories
+  in a cache internal to package namespace; avoid re-reading
+  basic details from filesystem each time the basic printout
+  is produced
+
+* anonymous collections: creating new "variables" on the fly
+  would be handy, make collections as similar to regular variables
+  as possible
+
+* attaching: maybe there is a way to "attach" a whole repository
+  to the global environment? then each collection would be accessible
+  just by typing its name, without the necessity of creating
+  explicit handlers (objects of class collection)
+
+* SparkR: see how data and computation is handled in Spark and SparkR;
+  maybe there is something necessary to prepare the API for future
+  integration?
