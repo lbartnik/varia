@@ -61,6 +61,7 @@ list_collections <- function (repo) {
 }
 
 
+#' @rdname repository_ops
 #' @export
 #' @importFrom dplyr between
 `[.repository` <- function (repo, i) {
@@ -102,5 +103,29 @@ print.repository <- function (repo) {
   }
   else
     cat('empty repository')
+}
+
+
+#' Return possible completion for the \code{$} operator.
+#' 
+#' @param x A \emph{repository} object.
+#' @param pattern Partially specified name.
+#' @return Possible names.
+#' 
+#' @importFrom utils .DollarNames
+#' @export
+#' @name repository_ops
+`.DollarNames.repository` <- function (x, pattern) {
+  grep(pattern, list_collections(x), value = TRUE)
+}
+
+
+#' @details Returns a \code{collection} object if it exists in the
+#'   repository.
+#'
+#' @rdname repository_ops
+#' @export
+`$.repository` <- function (x, name) {
+  collection(x, name)
 }
 

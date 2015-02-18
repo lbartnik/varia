@@ -62,7 +62,7 @@ test_that('to_collection, fun returns NULL', {
   task <- cply(src, function(o,t)NULL)
   suppressMessages(res <- to_collection(task, dest))
   
-  expect_equal(attr(res, 'errors'), list())  
+  expect_equivalent(attr(res, 'errors'), list())  
   expect_equal(length(refresh(dest)), 0)
 
   remove_dir(repo)

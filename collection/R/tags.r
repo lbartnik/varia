@@ -58,54 +58,85 @@ has_tags <- function (x) has_attr(x, 'tags')
 
 # --- eval, read, check ------------------------------------------------
 
+RESERVED_TAGS <- c('.date', '.id', 'class')
+
+
+#' Combine all possible and provided tags.
+#' 
+#' The priority of tags is as follows:
+#' \itemize{
+#'   \item tags evaluated from \code{dots} (see \code{\link[lazyeval]{lazy_eval}})
+#'   \item standard per-class tags (see \code{\link{auto_tags}}),
+#'   \item explicit tags provided in \code{tags}
+#' }
+#' 
+#' Tags from the object itself (see \code{\link{with_tags}}) are not
+#' processed in this function; if present, a warning message is printed.
+#' 
+#' @param obj Object.
+#' @param dots A \code{\link[lazyeval]{lazy_dots}} object.
+#' @param tags A \code{list} of tags.
+#' @param .on_error \code{\link{stop}}, \code{\link{warning}}, or \code{NULL}
+#' 
+#' @return A \code{list} of evaluated tags.
+#' 
+#' @importFrom plyr defaults
+all_tags <- function (obj, dots, tags, .on_error = NULL) {
+  # error message handling
+  on_error <- if (is.null(.on_error)) function(...)NULL else function(...) .on_error(..., call. = FALSE)
+  
+  check_reserved_tags <- function (tags) {
+    name <- deparse(substitute(tags))
+    indx <- RESERVED_TAGS %in% names(tags)
+    if (any(indx)) on_error(name, ': tag names:', paste(stdn[indx], sep = ', '))
+  }
+  
+  # with_tags
+  if (has_tags(obj)) on_error('with_tags is not supported; pass values via tags params')
+  
+  # lazy tags
+  dots <- if (!missing(dots)) eval_tags(dots, obj) else list()
+  if (!check_tags(dots)) on_error('dots have to evaluate to a named list of atomic values')
+  check_reserved_tags(dots)
+
+  # add auto tags & .date
+  new_tags <- defaults(dots, auto_tags(dots))
+  new_tags$.date <- Sys.time()
+  
+  # list tags
+  if (!missing(tags)) {
+    if (!check_tags(tags)) on_error('tags have to be a named list of atomic values')
+    check_reserved_tags(tags)
+    new_tags <- defaults(new_tags, tags)
+  }
+  
+  # return a complete list
+  new_tags
+}
+
+# tags must be a named list of atomic values
+check_tags <- function (tags) {
+  if (!length(tags)) return(TRUE)
+  if (!is.list(tags)) return(FALSE)
+  if (!all(nchar(names(tags)))) return(FALSE)
+  if (!all(vapply(tags, is.atomic, logical(1)))) return(FALSE)
+  T
+}
+
+
 #' @importFrom lazyeval lazy_eval
 eval_tags <- function (dots, obj) {
   data <- list(. = obj)
   if (is.list(obj))
     data <- c(data, obj)
-  
-  tags <- lazy_eval(dots, data)
-  assert_tags(tags, 'all tags must be named and evaluate to single-element, atomic values')
+  lazy_eval(dots, data)
 }
+
 
 # reads tags, adds the `.id` tag
 read_tags <- function (path) {
   tags <- readRDS(paste0(path, '_tags.rds'))
   tags$`.id` <- basename(path)
-  tags
-}
-
-# tags must be a named list of single-element, atomic values
-check_tags <- function (tags) {
-  if (!length(tags)) return(TRUE)
-  if (!all(nchar(names(tags)))) return(FALSE)
-  if (!all(vapply(tags, is.atomic, logical(1)))) return(FALSE)
-  if (any(vapply(tags, length, numeric(1)) != 1)) return(FALSE)
-  T
-}
-
-check_standard_tags <- function (tags) {
-  name <- deparse(substitute(tags))
-  stdn <- c('.id', '.date')
-  indx <- stdn %in% names(tags)
-  if (any(indx)) {
-    stop("tag names reserved in '", name, "': ",
-         paste(stdn[indx], sep = ', '), call. = FALSE)
-  }
-}
-
-add_standard_tags <- function (tags) {
-  tags[['.date']] <- Sys.time()
-  tags
-}
-
-# If tags are incorrect, stops execution.
-# If tags are OK, returns them unchanged.
-#
-# The default message is used in a few places.
-assert_tags <- function (tags, message = 'tags have to be a named list with single-element, atomic values')
-{
-  if (!check_tags(tags)) stop(message, call. = FALSE)
   tags
 }
 
@@ -133,18 +164,24 @@ retag <- function (col, ..., .add = T, .cores = getOption('cores', 1)) {
   stopifnot(is_collection(col))
   
   dots <- lazy_dots(...)
-  stopifnot(all(nchar(names(dots)))) # all must have names
   
   # process all tag files 
   files <- file.path(path(col), make_path(col))
-  res <- run_in_parallel(files, c_apply, function (obj, old_tags) {
-    id <- old_tags$.id; old_tags$.id <- NULL
-    tags <- eval_tags(dots, obj)
-    if (.add)
-      tags <- defaults(tags, old_tags)
-    saveRDS(tags, file.path(path(col), paste0(make_path(id), '_new_tags.rds')))
-    T
-  }, .cores)
+  res <-
+    run_in_parallel(files, c_apply, function (obj, old_tags) {
+      # split reserved
+      rsvd <- old_tags[RESERVED_TAGS]
+      # if .add keep old_tags
+      if (.add) old_tags[RESERVED_TAGS] <- NULL else old_tags <- NULL
+      
+      # recompute, restore date
+      tags <- all_tags(obj, dots, old_tags)
+      tags$.date <- rsvd$.date
+      
+      # save, return T for success
+      saveRDS(tags, file.path(path(col), paste0(make_path(rsvd$.id), '_new_tags.rds')))
+      TRUE
+    }, .cores)
   
   # separate OKs from errors
   res <- as_ply_result(res)
@@ -166,27 +203,3 @@ retag <- function (col, ..., .add = T, .cores = getOption('cores', 1)) {
               class = c('ply_result', 'collection')))
   }
 }
-
-
-# --- auto tags --------------------------------------------------------
-
-#' @export
-auto_tags <- function (x) UseMethod('auto_tags')
-
-#' @export
-auto_tags.default <- function (x) {
-  stop('class ', paste(class(x), collapse = ' '), ' is not supported',
-       call. = FALSE)
-}
-
-# TODO what about multiple-element tag values?
-
-#' @export
-# auto_tags.lm <- function (x) {
-#   list(
-#     `class` = class(x),
-#     `coef`  = x$coefficients,
-#     `
-#   )
-# }
-

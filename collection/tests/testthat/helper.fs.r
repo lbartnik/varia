@@ -7,12 +7,21 @@ remove_dir <- function (path) {
 
 # --- collection -------------------------------------------------------
 
-copy_sample_col <- function () {
+create_empty_col <- function () {
   path <- file.path(tempdir(), as.character(round(runif(1)*1e6)))
   expect_false(file.exists(path))
   dir.create(path)
+  path
+}
+
+copy_sample_col <- function () {
+  path <- create_empty_col()
   file.copy(list.files('sample-collection', full.names = T), path, recursive = T)
   path
+}
+
+read_tag_files <- function (path) {
+  lapply(list.files(path, '_tags.rds$', full.names = T, recursive = T), readRDS)
 }
 
 # --- repository -------------------------------------------------------

@@ -171,13 +171,18 @@ summary.collection <- function (col, .all = FALSE) {
   # TODO handle removed objects
   
   # sizes
-  sizes <- laply(obj_files(col), function(path) file.info(path)$size)
+  sizes <- file.info(obj_files(col))
+  sizes <- `names<-`(sizes$size, as.character(col))
   
   # tags
-  tags <-
-    tag_files(col) %>%
-    ldply(function(x) readRDS(x) %>% as_data_frame) %>%
-    llply(function(x) x[!is.na(x)])
+  # TODO should we form a data.frame; maybe operate on lists only?
+  tags <- lapply(tag_files(col), readRDS)
+  tnms <- unique(unlist(lapply(tags, names)))
+  tags <- lapply(tnms, function(name) {
+    v <- unlist(lapply(tags, `[[`, i = name), use.names = F)
+    v[!is.na(v)]
+  })
+  names(tags) <- tnms
   
   # remove hidden tags
   if (!.all) {
@@ -259,6 +264,39 @@ list_objects <- function (col, n = min(10, length(col))) {
 }
 
 
+# TODO trim each tag's printout
+print_line_tags <- function (nms, tags) {
+  if (!missing(nms) && length(nms)) tags <- tags[nms]
+  n <- names(tags)
+  v <- vapply(tags, toString, character(1))
+  paste(n, v, sep = ': ', collapse = '; ')
+}
+
+
+list_simple <- function (col, n) {
+  # print line after line
+  # print .id and .size and .date only if requested
+  # first use a specified method for printing, if that does not exist, print tags
+  # limit each line to 'width'
+
+  lapply(tag_files(col), function (path) {
+    name <- file_path_sans_ext(basename(path))
+    size <- file.info(path)$size
+    tags <- readRDS(path)
+    x <- `class<-`(character(), tags$class)
+    p <- paste0(print_line(x, tags), print_line_tags(character(), tags))
+    #p <- toString(p, width = )
+    cat(p, '\n')
+  })
+  
+  invisible()
+}
+
+list_wide <- function (col, n) {
+  
+}
+
+
 # --- collection: adding objects ---------------------------------------
 
 #' Add object to collection
@@ -313,19 +351,7 @@ add_object_ <- function (col, obj, .dots, .tags, .overwrite = F) {
     dir.create(dirname(file), recursive = T, showWarnings = F)
   
   # check and combine .dots & .tags
-  tags <- if (!missing(.dots)) eval_tags(.dots, obj) else list()
-  check_standard_tags(tags)
-  
-  if (!missing(.tags)) {
-    check_standard_tags(.tags)
-    assert_tags(tags)
-    tags <- defaults(tags, .tags)
-  }
-  
-  # add .date
-  tags <- add_standard_tags(tags)
-  
-  # TODO handle tags added with `with_tags`
+  tags <- all_tags(obj, .dots, .tags)
   
   # save data to filesystem
   saveRDS(obj, paste0(file, '.rds'))
@@ -349,8 +375,7 @@ add_auto_tags <- function (col, obj, ..., .overwrite = F) {
 # --- collection: filtering & grouping ---------------------------------
 
 #' @export
-#' @importFrom dplyr data_frame filter rename filter_ %>%
-#' @importFrom plyr mdply
+#' @importFrom dplyr filter filter_ %>%
 #' @importFrom magrittr extract2
 #' @importFrom lazyeval lazy_eval
 filter_.collection <- function (col, .dots, cores = getOption('cores', 1)) {
@@ -358,7 +383,16 @@ filter_.collection <- function (col, .dots, cores = getOption('cores', 1)) {
   
   files <- file.path(path(col), make_path(col))
   res <- run_in_parallel(files, t_apply, function (tags) {
-    all(as.logical(lazy_eval(.dots, tags)))
+    # compute expressions
+    vals <- lazy_eval(.dots, tags)
+    # by default tags should return one logical value
+    il <- (vapply(vals, length, integer(1)) > 1)
+    if (any(il)) {
+        warning(tags$.id, ': tag(s) did not compute to single value: ',
+                paste(names(vals)[il], collapse = ', '), call. = FALSE)
+    }
+    # recompute, all must be true
+    all(vapply(vals, function(val) any(as.logical(val)), logical(1)))
   }, cores)
   
   res <- as_ply_result(res)

@@ -59,7 +59,7 @@ test_that('collection print', {
 })
 
 
-test_that('symmary', {
+test_that('summary', {
   path <- file.path(tempdir(), 'col')
   col  <- create_collection(path)
   
@@ -68,18 +68,18 @@ test_that('symmary', {
   
   s <- summary(col)
   expect_equal(s$path, path)
-  expect_equal(s$sizes, c(`1` = 72))
+  expect_equal(s$sizes, c('78fcc60024d89747409f6c66f4e91715' = 72))
   
-  expect_equal(s$tags, list(x = 1))
+  expect_equal(s$tags, list(x = 1, class = 'list'))
   
   retag(col, x = 1, y = 2)
-  expect_equal(summary(col)$tags, list(x = 1, y = 2))
+  expect_equal(summary(col)$tags, list(x = 1, y = 2, class = 'list'))
   
   retag(col, x = 1, y = 2, z = a)
-  expect_equal(summary(col)$tags, list(x = 1, y = 2, z = 999))
+  expect_equal(summary(col)$tags, list(x = 1, y = 2, z = 999, class = 'list'))
   
   retag(col, x = 1, y = 2, z = .$a)
-  expect_equal(summary(col)$tags, list(x = 1, y = 2, z = 999))
+  expect_equal(summary(col)$tags, list(x = 1, y = 2, z = 999, class = 'list'))
   
   # clean up
   unlink(path, recursive = T, force = T)

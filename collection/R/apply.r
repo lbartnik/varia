@@ -80,21 +80,8 @@ as_ply_result <- function (outputs) {
 
 #' @export
 print.ply_result <- function (x) {
-  err <- attr(x, 'errors')
-  
-  # no errors case
-  if (!length(err)) {
-    cat('*ply result: no errors\n')
-  }
-  else {
-    # there are errors
-    cat('*ply result - with', length(err), 'error(s):\n')
-    cat('1: ', err[[1]]$message, 'in', deparse(err[[1]]$call), '\n')
-    if (length(err) > 1)
-      cat('...\n')
-  }
-  
-  attr(x, 'errors') <- NULL
+  print(errors(x))  
+  x <- without_errors(x)
   print(`class<-`(x, class(x)[-1])) # remove ply_result class
 }
 
@@ -223,7 +210,7 @@ locally <- function (task, cores = getOption('cores', 1)) {
   }
   
   y <- as_ply_result(res)
-  structure(y$res, 'errors' = y$err, class = 'ply_result')
+  structure(y$res, 'errors' = as_errors(y$err), class = 'ply_result')
 }
 
 
@@ -289,7 +276,7 @@ to_collection <- function (task, dest, .parallel = getOption('cores', 1)) {
     
     # TODO maybe add ids to whatever is in dest; or make sure that dest is empty!
     #      it does not make semantical sense any other way
-    return(structure(ids, path = path(dest), errors = y$err,
+    return(structure(ids, path = path(dest), errors = as_errors(y$err),
                      class = c('ply_result', 'collection')))
   }
   
@@ -345,7 +332,7 @@ run_deferred <- function (deferred_task) {
 #' @importFrom dplyr %>%
 xxply <- function (col, fun, cores = getOption('cores', 1)) {
   res <- xply(col, fun) %>% locally(cores)
-  err <- attr(res, 'errors')
+  err <- errors(res)
   res <- plyrfun(res)
   
   if (is_ply_result(res))
