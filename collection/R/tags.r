@@ -100,7 +100,7 @@ all_tags <- function (obj, dots, tags, .on_error = NULL) {
   check_reserved_tags(dots)
 
   # add auto tags & .date
-  new_tags <- defaults(dots, auto_tags(dots))
+  new_tags <- defaults(dots, auto_tags(obj))
   new_tags$.date <- Sys.time()
   
   # list tags

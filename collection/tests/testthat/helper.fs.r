@@ -24,6 +24,10 @@ read_tag_files <- function (path) {
   lapply(list.files(path, '_tags.rds$', full.names = T, recursive = T), readRDS)
 }
 
+read_obj_files <- function (path) {
+  lapply(list.files(path, '^[^_]+.rds', full.names = T, recursive = T), readRDS)
+}
+
 # --- repository -------------------------------------------------------
 
 create_empty_repo <- function () {

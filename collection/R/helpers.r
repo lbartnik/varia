@@ -10,8 +10,11 @@ create_sample_collection <- function (
   size = 100
 )
 {
-  if (file.exists(path))
-    stop('directory ', path, ' already exists', call. = F)
+  if (file.exists(path)) {
+    warning('directory ', path, ' already exists, just reading', call. = F)
+    return(collection(path, 'a sample collection'))
+  }
+  
   col <- collection(path, 'a sample collection', .create = T)
   lapply(rnorm(size), function(x)add_object(col, x))
   refresh(col)

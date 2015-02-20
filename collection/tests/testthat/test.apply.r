@@ -21,7 +21,9 @@ test_that("tply", {
   })
   tgs <- do.call(rbind, locally(tsk))
 
-  exp <- data.frame(a = c(1,1,2), b = c(2,3,3), .id = c('1234ab', '1234cd', '1234ef'))
+  exp <- data.frame(a = c(1,1,2), b = c(2,3,3),
+                    class = 'numeric',
+                    .id = c('1234ab', '1234cd', '1234ef'))
   expect_equivalent(tgs, exp)
 })
 
@@ -67,4 +69,36 @@ test_that('to_collection, fun returns NULL', {
 
   remove_dir(repo)
 })
+
+
+test_that('simple deferred execution', {
+  # simulated via makePSOCKcluster
+  load_or_skip(parallel)
+  
+  col <- collection('sample-collection')
+  tsk <- cply(col, function(o,t)summary(o)) %>% deferred
+  
+  res <- run_via_psock(tsk)
+  
+  expect_equal(res, lapply(read_obj_files('sample-collection'), summary))
+})
+
+
+test_that('complex deferred execution', {
+  # simulated via makePSOCKcluster
+  load_or_skip(parallel)
+  
+  col <- collection('sample-collection')
+  fun <- function(x)summary(x)
+  foo <- function(y)fun(y)
+  bar <- function(z)foo(z)
+  tsk <- cply(col, function(o,t)bar(o)) %>% deferred
+  
+  res <- run_via_psock(tsk)
+  
+  expect_equal(res, lapply(read_obj_files('sample-collection'), summary))
+})
+
+
+
 

@@ -55,7 +55,7 @@ test_that('adding with tag', {
 
 test_that('collection print', {
   col <- collection('sample-collection')
-  expect_output(print(col), "3 object\\(s\\), 129 bytes")
+  expect_output(print(col), '') # expect no error
 })
 
 
@@ -70,16 +70,18 @@ test_that('summary', {
   expect_equal(s$path, path)
   expect_equal(s$sizes, c('78fcc60024d89747409f6c66f4e91715' = 72))
   
-  expect_equal(s$tags, list(x = 1, class = 'list'))
+  def_tags <- list(class = 'list', length = 1, names = 'a')
+  
+  expect_equal(s$tags, c(list(x = 1), def_tags))
   
   retag(col, x = 1, y = 2)
-  expect_equal(summary(col)$tags, list(x = 1, y = 2, class = 'list'))
+  expect_equal(summary(col)$tags, c(list(x = 1, y = 2), def_tags))
   
   retag(col, x = 1, y = 2, z = a)
-  expect_equal(summary(col)$tags, list(x = 1, y = 2, z = 999, class = 'list'))
+  expect_equal(summary(col)$tags, c(list(x = 1, y = 2, z = 999), def_tags))
   
   retag(col, x = 1, y = 2, z = .$a)
-  expect_equal(summary(col)$tags, list(x = 1, y = 2, z = 999, class = 'list'))
+  expect_equal(summary(col)$tags, c(list(x = 1, y = 2, z = 999), def_tags))
   
   # clean up
   unlink(path, recursive = T, force = T)
@@ -88,7 +90,8 @@ test_that('summary', {
 
 test_that('summary tags', {
   s <- summary(collection('sample-collection'))
-  expect_equal(s$tags, list(a = c(1, 1, 2), b = c(2, 3, 3))) # [] = drop attributes
+  expect_equal(s$tags, list(a = c(1, 1, 2), b = c(2, 3, 3),
+                            class = rep('numeric', 3)))
 })
 
 

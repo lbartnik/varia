@@ -307,7 +307,6 @@ to_collection <- function (task, dest, .parallel = getOption('cores', 1)) {
 #' dfrd <- readRDS('deferred_task.rds')
 #' run_deferred(dfrd)
 deferred <- function (task) {
-  user <- prepare_user_fun(task)
   pkg  <- package_(task$lazy_obj, determine_formals(task))
   structure(list(col = task$col, package = pkg), class = 'deferred_task')
 }
@@ -319,8 +318,14 @@ deferred <- function (task) {
 #' @param deferred_task A \emph{deferred_task} object.
 #' @rdname deferred
 #' @export
-run_deferred <- function (deferred_task) {
-  stop('not implemented yet', call. = FALSE)
+execute_deferred <- function (deferred_task) {
+  col <- deferred_task$col
+  pkg <- deferred_task$package
+  
+  files <- file.path(path(col), make_path(col))
+  lapply(files, c_apply, fun = function (obj, tags) {
+    pkg_eval(pkg, data = list(obj, tags))
+  })
 }
 
 

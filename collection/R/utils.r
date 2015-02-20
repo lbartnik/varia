@@ -20,6 +20,10 @@ is_error <- function (x) inherits(x, 'error')
 
 is_lazy <- function (x) inherits(x, 'lazy')
 
+format_size <- function (x) {
+  format(structure(as.numeric(x), class = 'object_size'), 'auto')
+}
+
 # split path
 split_path <- function (x) {
   stopifnot(is.character(x))
@@ -33,7 +37,9 @@ split_path <- function (x) {
 # last n parts of the path as name
 path_to_name <- function (x, last_n) {
   path <- split_path(x)
-  path <- if (length(path)>2) c(path[seq(last_n)], '...') else path
+  if (length(path) <= 2) return(x)
+  
+  path <- c(rev(path)[seq(last_n)], '....')
   do.call(file.path, as.list(rev(path)))
 }
 

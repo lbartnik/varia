@@ -50,26 +50,32 @@ create_collection <- function (path, comment) {
 }
 
 
+#' Read all objects from directory pointed to in \code{col}.
+#' 
+#' @param col Collection object.
+#' @return A new collection object with all identifiers.
+#' 
+#' @export
+refresh <- function (col) {
+  stopifnot(is_collection(col))
+  collection(path(col))
+}
+
 # --- collection: helpers ----------------------------------------------
 
 is_collection <- function (x) inherits(x, 'collection')
 
 # return either name or the last two directories of the path
 collection_name <- function (col) {
-  p <-normalizePath(path(col))
-  if (file.exists(p <- paste0(p, '.rds')))
-    return(readRDS(p))
+  p <- normalizePath(path(col))
+  if (file.exists(fp <- paste0(p, '.rds'))) # if in a repository
+    return(readRDS(fp))
   path_to_name(p, 2)
 }
 
 from_collection <- function (ids, col) {
   # TODO 'grouped' attr is not copied; shout it be?
   structure(ids, class = 'collection', path = path(col))
-}
-
-#' @export
-`[.collection` <- function (col, i) {
-  from_collection(as.character(col)[i], col)
 }
 
 #' verify that tag and object files exist
@@ -95,65 +101,83 @@ verify_files <- function (col, subcol) {
   if (!file.exists(comment)) comment <- NULL
   
   files <- list.files(path(col), recursive = T, full.names = T)
-  stopifnot(setequal(files, c(obj, tgs, comment)))
+  stopifnot(setequal(normalizePath(files), normalizePath(c(obj, tgs, comment))))
   
   T
 }
 
 
-#' Read all objects from directory pointed to in \code{col}.
+# --- collection: operators --------------------------------------------
+
+#' Operators for \emph{collection} class.
 #' 
-#' @param col Collection object.
-#' @return A new collection object with all identifiers.
-#' 
+#' @name collections_ops
 #' @export
-refresh <- function (col) {
-  stopifnot(is_collection(col))
-  collection(path(col))
+`[.collection` <- function (col, i) {
+  # empty result
+  if (!length(i))
+    return(from_collection(character(0), col))
+  
+  # numeric ids
+  if (is.numeric(i))
+    return(from_collection(as.character(col)[i], col))
+  
+  # short or long character ids
+  if (is.character(i)) {
+    l <- nchar(i)
+    if (!all(l == 32) && !all(l == 8)) {
+      stop('only short (8 characters) or long (32) identifiers allowed',
+           call. = FALSE)
+    }
+    # determine actual ids
+    if (l[1] == 8) {
+      ids <- long_id(col, i, .first = FALSE) # find all
+      ina <- vapply(ids, is.na, logical(1))
+      inf <- i[ina]
+      ids <- unlist(ids[!ina])
+    }
+    else {
+      ids <- match(i, unclass(col))
+      ina <- is.na(ids)
+      inf <- i[ina]
+      ids <- i[!ina]
+    }
+    # report missing ids
+    if (length(inf)) {
+      warning('identifiers not found: ', paste(inf, collapse = ', '),  call. = FALSE)
+    }
+    
+    return(from_collection(ids, col))
+  }
+  
+  # other id types
+  stop('do not how to handle index of class ', class(i)[1], call. = FALSE)
 }
 
 
-#' Remove specified objects.
-#' 
-#' Removes all object and tag files specified by \code{col}.
-#' 
-#' @param col A collection object.
-#' @return An empty collection.
-#' 
+#' @rdname collections_ops
 #' @export
-#' @examples
-#' \dontrun{
-#'   col <- collection('sample-collection')
-#'   
-#'   # remove all objects
-#'   remove_objects(col)
-#'   
-#'   # remove selected objects
-#'   col2 <- filter(col, size > 100, days == 10)
-#'   remove_objects(col2)
-#' }
-remove_objects <- function (col) {
-  stopifnot(is_collection(col))
-  # this might be a sub-collection
-  verify_files(col, TRUE)
+`.DollarNames.collection` <- function (x, pattern) {
+  if (length(x) == 0) return(character(0))
+  grep(pattern, names(summary(x, .all = TRUE)$tags), value = TRUE)
+}
+
+#' @rdname collections_ops
+`$.collection` <- function (x, name) {
+  if (length(x) == 0) {
+    stop('collection empty', call. = FALSE)
+  }
   
-  # remove object & tag files
-  unlink(c(obj_files(col), tag_files(col)), T, T)
+  tags <- summary(x, .all = TRUE)$tags
+  if (is.na(i <- match(name, names(tags))))
+    stop(name, ' tag is not present', call. = FALSE)
   
-  # remove empty directories
-  dirs <- list.dirs(path(col), full.names = T, recursive = T)
-  dirs <- sort(dirs, decreasing = T) # shorter names come later
-  lapply(dirs, function (dir) {
-    if (length(list.files(dir))) return() # not empty
-    unlink(dir, recursive = F, force = F)
-  })
-  
-  # remove an empty collection
-  structure(character(0), path = path(col), class = 'collection')
+  `names<-`(tags[[i]], short_id(as.character(x)))
 }
 
 
-# --- collection: summary ----------------------------------------------
+
+# --- collection: summary & printing -----------------------------------
 
 #' Summarise objects in a collection.
 #' 
@@ -175,12 +199,17 @@ summary.collection <- function (col, .all = FALSE) {
   sizes <- `names<-`(sizes$size, as.character(col))
   
   # tags
-  # TODO should we form a data.frame; maybe operate on lists only?
   tags <- lapply(tag_files(col), readRDS)
   tnms <- unique(unlist(lapply(tags, names)))
   tags <- lapply(tnms, function(name) {
-    v <- unlist(lapply(tags, `[[`, i = name), use.names = F)
-    v[!is.na(v)]
+    # preserve object class
+    # TODO what if the classes are different? maybe return a list
+    #      of values instead?
+    v <- lapply(tags, `[[`, i = name)
+    c <- lapply(v, class)
+    c <- c[!vapply(c, is.null, logical(1))]
+    v <- unlist(v, use.names = F, recursive = F)
+    `class<-`(v, c[[1]])
   })
   names(tags) <- tnms
   
@@ -211,8 +240,7 @@ print.summary.collection <- function (x, ...) {
     cat('empty collection', comment)
   }
   else {
-    size  <- structure(sum(x$sizes), class = 'object_size')
-    cat(length(x$sizes), 'object(s),', format(size, 'auto'), comment)
+    cat(length(x$sizes), 'object(s),', format_size(sum(x$sizes)), comment)
   }
   
   # tags
@@ -237,67 +265,95 @@ print.summary.collection <- function (x, ...) {
 
 
 #' @export
-print.collection <- function (x) {
-  x <- summary(x); x$tags <- list()
-  print(x)
+print.collection <- function (x, ..., n = 10, width = getOption('width', 72)) {
+  cat('Collection: ', collection_name(x))
+  
+  if (!length(x)) return(cat(' [empty]\n'))
+  
+  cat(' [', length(x), ']\n\n', sep = '')
+  
+  if (length(x) > 1)
+    list_simple(x, n, width)
+  else
+    list_wide(x, width)
 }
 
 
-#' @export
-#' @importFrom dplyr between as_data_frame tbl_df bind_cols data_frame %>%
-#' @importFrom plyr ldply
-list_objects <- function (col, n = min(10, length(col))) {
-  stopifnot(is_collection(col))
-  stopifnot(between(n, 1, length(col)))
+#' List collection contents; simple format.
+#' 
+#' @param col Collection object.
+#' @param n Print this many first objects.
+#' @param width Line width.
+#' 
+list_simple <- function (col, n = 10, width = getOption('width', 72)) {
+  # TODO print .id and .size and .date only if requested
+  # TODO first use a specified method for printing, if that does not exist, print tags
   
-  col <- col[seq(n)]
+  n <- min(n, length(col))
+  ncol <- col[seq(n)]
   
-  tags <-
-    tag_files(col) %>%
-    ldply(function(path) as_data_frame(readRDS(path)))
+  # 
+  if (!all(file.exists(obj_files(ncol)))) {
+    stop('object files do not exist, maybe removed? refresh collection',
+         call. = FALSE)
+  }
   
-  sizes <-
-    obj_files(col) %>%
-    vapply(function(path) file.info(path)$size, numeric(1))
+  # read tags
+  tags <- lapply(tag_files(ncol), readRDS)
   
-  bind_cols(data_frame(.id = as.character(col), `bytes` = sizes), tags) %>% tbl_df
+  # prefix
+  nms <- c('short id', short_id(as.character(ncol)))
+  szs <- c('size', vapply(file.info(obj_files(ncol))$size, format_size, character(1)))
+  cls <- c('class', vapply(tags, function(t) {
+    if (is.null(t$class)) return('unknown')
+    print_class(`class<-`(list(), t$class), t)
+  }, character(1)))
+  
+  # format tags
+  tags <- vapply(tags, function (x) {
+    x[c('class', '.date')] <- NULL
+    vls <- vapply(x, tag_to_string, character(1))
+    paste(names(x), vls, sep = ':', collapse = '  ')
+  }, character(1))
+
+  if (any(nchar(tags) > 0)) tags <- c('tags', tags)
+  
+  # final formatting and printing
+  lines <- lapply(list(nms, cls, szs), format, justify = 'right')
+  lines$tags <- format(tags, justify = 'left')
+  lines <- do.call(paste, c(lines, list(sep = ' ')))
+  lines <- vapply(lines, toString, character(1), width = width, USE.NAMES = FALSE)
+  cat(paste(lines, collapse = '\n'), '\n')
+  
+  if (length(col) > n) cat('...\n')
 }
 
 
-# TODO trim each tag's printout
-print_line_tags <- function (nms, tags) {
-  if (!missing(nms) && length(nms)) tags <- tags[nms]
-  n <- names(tags)
-  v <- vapply(tags, toString, character(1))
-  paste(n, v, sep = ': ', collapse = '; ')
-}
-
-
-list_simple <- function (col, n) {
-  # print line after line
-  # print .id and .size and .date only if requested
-  # first use a specified method for printing, if that does not exist, print tags
-  # limit each line to 'width'
-
-  lapply(tag_files(col), function (path) {
-    name <- file_path_sans_ext(basename(path))
-    size <- file.info(path)$size
-    tags <- readRDS(path)
-    x <- `class<-`(character(), tags$class)
-    p <- paste0(print_line(x, tags), print_line_tags(character(), tags))
-    #p <- toString(p, width = )
-    cat(p, '\n')
-  })
+list_wide <- function (col, width) {
+  data <- list(
+    `long id` = as.character(col),
+    size      = format_size(file.info(obj_files(col))$size)
+  )
+  data <- c(data, readRDS(tag_files(col)))
   
-  invisible()
-}
-
-list_wide <- function (col, n) {
+  nms <- format(names(data), justify = 'left')
+  vls <- vapply(data, tag_to_string, character(1))
   
+  # break lines if tag values are too long
+  mapply(function(name, value) {
+    lines <- strwrap(value, width = width, exdent = nchar(name), initial = name)
+    cat(paste0(lines, collapse = '\n'), '\n', sep = '')
+  }, name = paste0(nms, ' : '), value = vls)
 }
 
 
-# --- collection: adding objects ---------------------------------------
+tag_to_string <- function (value) {
+  if (length(value) <= 1) return(as.character(value))
+  paste0('[', paste(value, collapse = ', '),  ']')
+}
+
+
+# --- collection: adding & removing objects ----------------------------
 
 #' Add object to collection
 #' 
@@ -361,14 +417,43 @@ add_object_ <- function (col, obj, .dots, .tags, .overwrite = F) {
 }
 
 
-#' \code{add_auto_tags} calls \code{\link{auto_tags}} on \code{obj} and
-#' passes that to \code{\link{add_object_}}.
+#' Remove specified objects.
 #' 
-#' @rdname add_object
-add_auto_tags <- function (col, obj, ..., .overwrite = F) {
-  dots <- lazy_dots(...)
-  add_object_(col, obj, .dots = dots, .tags = auto_tags(obj),
-              .overwrite = .overwrite)
+#' Removes all object and tag files specified by \code{col}.
+#' 
+#' @param col A collection object.
+#' @return An empty collection.
+#' 
+#' @export
+#' @examples
+#' \dontrun{
+#'   col <- collection('sample-collection')
+#'   
+#'   # remove all objects
+#'   remove_objects(col)
+#'   
+#'   # remove selected objects
+#'   col2 <- filter(col, size > 100, days == 10)
+#'   remove_objects(col2)
+#' }
+remove_objects <- function (col) {
+  stopifnot(is_collection(col))
+  # this might be a sub-collection
+  verify_files(col, TRUE)
+  
+  # remove object & tag files
+  unlink(c(obj_files(col), tag_files(col)), T, T)
+  
+  # remove empty directories
+  dirs <- list.dirs(path(col), full.names = T, recursive = T)
+  dirs <- sort(dirs, decreasing = T) # shorter names come later
+  lapply(dirs, function (dir) {
+    if (length(list.files(dir))) return() # not empty
+    unlink(dir, recursive = F, force = F)
+  })
+  
+  # remove an empty collection
+  structure(character(0), path = path(col), class = 'collection')
 }
 
 
@@ -470,6 +555,7 @@ is_grouped <- function (col) {
 #' 
 #' @export
 read_all <- function (col) {
+  if (!length(col)) return(list())
   clply(col, function(o, t) o)
 }
 
@@ -480,5 +566,9 @@ read_all <- function (col) {
 #' @rdname read_all
 #' @export
 read_one <- function (col, n = 1) {
-  clply(col[n], function(o, t) o)[[1]]
+  if (!length(col))
+    stop('cannot read one element, collection is empty', call. = FALSE)
+  
+  path <- file.path(path(col), make_path(col[n]))
+  c_apply(path, function(o, t) o)
 }

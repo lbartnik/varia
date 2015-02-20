@@ -10,3 +10,14 @@ check_fun <- function (fun, frmls, bdy) {
   expect_equal(formals(fun), as.pairlist(frmls)) # strange but alist is NOT a pairlist like formals()
   expect_equal(body(fun), substitute(bdy))
 }
+
+run_via_psock <- function (task) {
+  cl  <- makePSOCKcluster(1)
+  res <- parLapply(cl, list(task), function(t) {
+    library(collection)
+    execute_deferred(t)
+  })
+  stopCluster(cl)
+  res[[1]]
+}
+
