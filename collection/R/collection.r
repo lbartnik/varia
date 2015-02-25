@@ -163,16 +163,18 @@ verify_files <- function (col, subcol) {
 }
 
 #' @rdname collections_ops
+#' @export
 `$.collection` <- function (x, name) {
   if (length(x) == 0) {
     stop('collection empty', call. = FALSE)
   }
   
-  tags <- summary(x, .all = TRUE)$tags
-  if (is.na(i <- match(name, names(tags))))
-    stop(name, ' tag is not present', call. = FALSE)
+  vls <- locally(tply(x, function(tags) tags[[name]] ))
+  inl <- vapply(vls, is.null, logical(1))
+  if (all(inl))
+    stop(name, ' tag name is not present', call. = FALSE)
   
-  `names<-`(tags[[i]], short_id(as.character(x)))
+  `names<-`(unlist(vls[!inl], recursive = FALSE), short_id(as.character(x)[!inl]))
 }
 
 
@@ -264,8 +266,10 @@ print.summary.collection <- function (x, ...) {
 }
 
 
+#' Prints collection.
+#' 
 #' @export
-print.collection <- function (x, ..., n = 10, width = getOption('width', 72)) {
+print.collection <- function (x, ..., n = 10, width = getOption('width', 72), .full = FALSE) {
   cat('Collection: ', collection_name(x))
   
   if (!length(x)) return(cat(' [empty]\n'))
@@ -273,10 +277,18 @@ print.collection <- function (x, ..., n = 10, width = getOption('width', 72)) {
   cat(' [', length(x), ']\n\n', sep = '')
   
   if (length(x) > 1)
-    list_simple(x, n, width)
+    list_simple(x, n, width, .full)
   else
     list_wide(x, width)
 }
+
+
+#' @rdname print.collection
+#' @export
+full <- function (col) {
+  print(col, .full = TRUE)
+}
+
 
 
 #' List collection contents; simple format.
@@ -284,8 +296,10 @@ print.collection <- function (x, ..., n = 10, width = getOption('width', 72)) {
 #' @param col Collection object.
 #' @param n Print this many first objects.
 #' @param width Line width.
+#' @param .all Print short id, size and date.
 #' 
-list_simple <- function (col, n = 10, width = getOption('width', 72)) {
+#' @importFrom lubridate origin
+list_simple <- function (col, n = 10, width = getOption('width', 72), .full = FALSE) {
   # TODO print .id and .size and .date only if requested
   # TODO first use a specified method for printing, if that does not exist, print tags
   
@@ -308,6 +322,10 @@ list_simple <- function (col, n = 10, width = getOption('width', 72)) {
     if (is.null(t$class)) return('unknown')
     print_class(`class<-`(list(), t$class), t)
   }, character(1)))
+  dts <- c('insert time', vapply(tags, function(t) {
+    if (is.null(t$.date)) return('unknown')
+    as.character(t$.date)
+  }, character(1)))
   
   # format tags
   tags <- vapply(tags, function (x) {
@@ -318,12 +336,16 @@ list_simple <- function (col, n = 10, width = getOption('width', 72)) {
 
   if (any(nchar(tags) > 0)) tags <- c('tags', tags)
   
-  # final formatting and printing
-  lines <- lapply(list(nms, cls, szs), format, justify = 'right')
+  # final formatting
+  prefix <- if (.full) list(nms, cls, dts, szs) else list(cls)
+  lines <- lapply(prefix, format, justify = 'right')
   lines$tags <- format(tags, justify = 'left')
-  lines <- do.call(paste, c(lines, list(sep = ' ')))
+  lines <- do.call(paste, c(lines, list(sep = '  ')))
   lines <- vapply(lines, toString, character(1), width = width, USE.NAMES = FALSE)
-  cat(paste(lines, collapse = '\n'), '\n')
+  
+  # ordering & printing
+  no <- format(c('', as.character(seq_along(lines[-1]))), justify = 'left')
+  cat(paste(no, c(lines[1], lines[-1][order(nms[-1])]), collapse = '\n'), '\n', sep = '')
   
   if (length(col) > n) cat('...\n')
 }

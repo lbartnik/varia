@@ -8,10 +8,16 @@ Maintainer: Lukasz A. Bartnik <l.bartnik@gmail.com>
 Description: Stores objects in file system.
 License: GPL3
 Imports: 
+    assertthat,
+	devtools,
     digest,
     dplyr,
+	lazyeval,
     magrittr,
-    plyr
+	parallel,
+    plyr,
+	tools,
+	utils
 Suggests: testthat,
     knitr
 VignetteBuilder: knitr

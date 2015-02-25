@@ -96,9 +96,11 @@ print.repository <- function (repo) {
     nm <- format(cols, width = max(nchar(cols)))
     
     invisible(mapply(function(name, path) {
-      cat(name, ': ')
-      print(collection(path))
-      cat('\n')
+      c <- collection(path)
+      s <- summary(c)
+      cat(name,
+          ' [', ifelse(length(c), length(c), 'empty'), '], ',
+          format_size(sum(s$sizes)), '\n', sep = '')
     }, name = nm, path = names(nm)))
   }
   else
