@@ -183,6 +183,8 @@ determine_formals <- function (task) {
 #' @return A \code{list} of results.
 #' 
 #' @export
+#' @importFrom defer prepare_user_object
+#' 
 #' @seealso \code{\link{cply}} \code{\link{to_collection}} \code{\link{deferred}}
 #'   \code{\link{create_sample_collection}}
 #' 
@@ -297,6 +299,8 @@ to_collection <- function (task, dest, .parallel = getOption('cores', 1)) {
 #' @seealso \code{\link{cply}}
 #' 
 #' @export
+#' @importFrom defer pack_
+#' 
 #' @examples
 #' col <- create_sample_collection()
 #' task <- cply(col, function(x)x**2)
@@ -307,7 +311,7 @@ to_collection <- function (task, dest, .parallel = getOption('cores', 1)) {
 #' dfrd <- readRDS('deferred_task.rds')
 #' run_deferred(dfrd)
 deferred <- function (task) {
-  pkg  <- package_(task$lazy_obj, determine_formals(task))
+  pkg  <- pack_(task$lazy_obj, determine_formals(task))
   structure(list(col = task$col, package = pkg), class = 'deferred_task')
 }
 
@@ -317,7 +321,9 @@ deferred <- function (task) {
 #' 
 #' @param deferred_task A \emph{deferred_task} object.
 #' @rdname deferred
+#' 
 #' @export
+#' @importFrom defer pkg_eval
 execute_deferred <- function (deferred_task) {
   col <- deferred_task$col
   pkg <- deferred_task$package

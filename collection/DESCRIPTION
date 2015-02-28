@@ -8,6 +8,7 @@ Maintainer: Lukasz A. Bartnik <l.bartnik@gmail.com>
 Description: Stores objects in file system.
 License: GPL3
 Imports: 
+	defer,
     assertthat,
 	devtools,
     digest,
