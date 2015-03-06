@@ -92,13 +92,14 @@ test_that('complex deferred execution', {
   fun <- function(x)summary(x)
   foo <- function(y)fun(y)
   bar <- function(z)foo(z)
-  tsk <- cply(col, function(o,t)bar(o)) %>% deferred
+  
+  # tricking pack(), otherwise fun foo & bar are in the 'collection'
+  # namespace; eval(quote(), new.env()) is required to keep top-level
+  # function's environment empty
+  environment(fun) <- environment(foo) <- environment(bar) <- globalenv()
+  tsk <- eval(quote(cply(col, function(o,t)bar(o)) %>% deferred), new.env())
   
   res <- run_via_psock(tsk)
-  
   expect_equal(res, lapply(read_obj_files('sample-collection'), summary))
 })
-
-
-
 
