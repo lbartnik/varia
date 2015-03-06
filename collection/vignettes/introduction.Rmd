@@ -1,0 +1,62 @@
+---
+title: "Refactoring Interactive R"
+author: "Lukasz A. Bartnik"
+date: "02.03.2015"
+output: ioslides_presentation
+---
+
+## Goals
+
+- Interactive work with data sets/objects
+- Deferring work to remote host(s)
+- Distributing work accross a cluster
+
+
+## Interactive
+
+Repository: archive, collection, ...
+
+Archivist - CRAN package
+archive - local implementation of this concept
+
+collection - a distributed data frame (yet another); SparkR? dplyr? what other approaches are possible?
+
+## Deferring
+
+Pack the main entry point (function or code) and its dependencies,
+serialize and send to a remote host. Unserialize and re-build the
+dependencies so that the main entry function/code can be run in a
+remote environment without any changes to the code.
+
+Package: defer
+
+```{r eval=FALSE}
+Rserve(port = 12345, args = c('--vanilla', '--RS-enable-control'))
+x = RS.connect(port = 12345)
+RS.assign(x, 'x', 0)
+RS.eval(x, { Sys.sleep(3); x <- x + 1; x}, wait = F)
+RS.collect(x, timeout = 0)
+RS.server.shutdown(x)
+RS.close(x)
+```
+
+
+
+## Distributing
+
+Collection - splitting a data set into multiple parts that can be
+  processed (selected, filtered, grouped) and passed to computational
+  algorithms (modelling and scoring);
+  multiple approaches are possible, with various backends (SparkR,
+  simple filesystem + Deferred Task)
+
+Other projects like that in R:
+
+- ff: http://cran.r-project.org/web/packages/ff/index.html http://ff.r-forge.r-project.org/
+- ffbase: http://cran.r-project.org/web/packages/ffbase/index.html
+- bigmemory: http://cran.r-project.org/web/packages/bigmemory/index.html
+- depending on bigmemory: bigtabulate, biganalytics
+
+
+
+
