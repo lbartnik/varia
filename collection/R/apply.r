@@ -183,7 +183,7 @@ determine_formals <- function (task) {
 #' @return A \code{list} of results.
 #' 
 #' @export
-#' @importFrom defer prepare_user_object
+#' @importFrom lazyeval lazy_eval
 #' 
 #' @seealso \code{\link{cply}} \code{\link{to_collection}} \code{\link{deferred}}
 #'   \code{\link{create_sample_collection}}
@@ -199,7 +199,7 @@ locally <- function (task, cores = getOption('cores', 1)) {
   stopifnot(is_ply_task(task))
   
   # prepare the user object
-  user <- prepare_user_object(task$lazy_obj, determine_formals(task))
+  user <- lazy_eval(task$lazy_obj)
   
   # run the user object in the require fashion
   if (is_grouped(task$col)) {
@@ -233,6 +233,7 @@ locally <- function (task, cores = getOption('cores', 1)) {
 #' 
 #' @export
 #' @importFrom plyr defaults
+#' @importFrom lazyeval lazy_eval
 to_collection <- function (task, dest, .parallel = getOption('cores', 1)) {
   # it has to be a collection-level task, not a tag-level one, bc
   # the user function is expected to return objects _with_ tags, not
@@ -247,7 +248,7 @@ to_collection <- function (task, dest, .parallel = getOption('cores', 1)) {
   # local case
   if (is.numeric(.parallel)) {
     inner_fun <- if (is_grouped(task$col)) c_apply_grouped else c_apply
-    user_fun  <-prepare_user_object(task$lazy_obj, determine_formals(task))
+    user_fun  <- lazy_eval(task$lazy_obj)
     
     # outer function saves objects to `dest` and returns identifiers
     outer_fun <- function(path, fun) {
@@ -299,7 +300,8 @@ to_collection <- function (task, dest, .parallel = getOption('cores', 1)) {
 #' @seealso \code{\link{cply}}
 #' 
 #' @export
-#' @importFrom defer pack_
+#' @importFrom defer package_
+#' @importFrom lazyeval lazy_eval
 #' 
 #' @examples
 #' col <- create_sample_collection()
@@ -311,7 +313,7 @@ to_collection <- function (task, dest, .parallel = getOption('cores', 1)) {
 #' dfrd <- readRDS('deferred_task.rds')
 #' run_deferred(dfrd)
 deferred <- function (task) {
-  pkg  <- pack_(task$lazy_obj, determine_formals(task))
+  pkg  <- package_(list(entry = lazy_eval(task$lazy_obj)))
   structure(list(col = task$col, package = pkg), class = 'deferred_task')
 }
 
@@ -323,14 +325,14 @@ deferred <- function (task) {
 #' @rdname deferred
 #' 
 #' @export
-#' @importFrom defer pkg_eval
+#' @importFrom defer package_eval_
 execute_deferred <- function (deferred_task) {
   col <- deferred_task$col
   pkg <- deferred_task$package
   
   files <- file.path(path(col), make_path(col))
   lapply(files, c_apply, fun = function (obj, tags) {
-    pkg_eval(pkg, data = list(obj, tags))
+    package_eval_(pkg, args = list(obj, tags))
   })
 }
 
