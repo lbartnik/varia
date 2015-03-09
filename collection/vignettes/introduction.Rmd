@@ -5,58 +5,85 @@ date: "02.03.2015"
 output: ioslides_presentation
 ---
 
-## Goals
+## Goals/Things to Address
 
-- Interactive work with data sets/objects
-- Deferring work to remote host(s)
-- Distributing work accross a cluster
+> * Working with data sets, where data size >> RAM
+    + Interactively
+    + Simple R objects stored in files
+    + Consistency between objects not enforced
+
+> * Deferring computations
+    + Distributing computations in a cluster
+    + Documenting work at a given stage
+
+> * Managing artifacts
+    + Input data sets (simple objects or collections, see point 1)
+    + Results (data sets & objects, e.g. models)
+    + Relationships (transformations, code, implementation)
 
 
-## Interactive
+## Working with Big Data Sets: Current State
 
-Repository: archive, collection, ...
+* Managing data (CRAN): `ff`, `biglm`, `bigmemory`, `biganalytics`, `bigalgebra`, ...
+* Third-party tools (CRAN): `SparkR`
 
-Archivist - CRAN package
-archive - local implementation of this concept
 
-collection - a distributed data frame (yet another); SparkR? dplyr? what other approaches are possible?
+## Working with... Collection
 
-## Deferring
+> - Assumptions:
+    * Simulate a `list` of objects
+    * Additional, pre-computed __tags__ to filter or group objects
+    * Apply user code on each object/group and write the results to another __collection__
+  
+> - Features:
+    * Interactive (help the user see the data, its contents and __tags__)
+    * Apply code in parallel, possibly on a remote cluster
+    * By default read-only (to preserve data consistency)
+  
 
-Pack the main entry point (function or code) and its dependencies,
-serialize and send to a remote host. Unserialize and re-build the
-dependencies so that the main entry function/code can be run in a
-remote environment without any changes to the code.
+## Design draft
 
-Package: defer
+* Repository/Archive (Archivist-like?)
+    + analytical/research artifacts
+    + any object
+    + automatic tagging
+    + verbose output and object description
 
-```{r eval=FALSE}
-Rserve(port = 12345, args = c('--vanilla', '--RS-enable-control'))
-x = RS.connect(port = 12345)
-RS.assign(x, 'x', 0)
-RS.eval(x, { Sys.sleep(3); x <- x + 1; x}, wait = F)
-RS.collect(x, timeout = 0)
-RS.server.shutdown(x)
-RS.close(x)
-```
+* Collection
+    + objects storage
+    + many similar objects
+    + only *basic* and *user-provided* tags
+    + simplified output
 
+
+## Deferring Work: `defer`
+
+* Package user-provided function
+    + Add global/local dependencies if asked
+    + Analyze the code and extract library function calls
+
+* Rebuild the execution environment
+    + the *same* or only *similar*?
+    + make sure conflicting library calls are handled (e.g. `plyr` vs. `dplyr`)
 
 
 ## Distributing
 
-Collection - splitting a data set into multiple parts that can be
-  processed (selected, filtered, grouped) and passed to computational
-  algorithms (modelling and scoring);
-  multiple approaches are possible, with various backends (SparkR,
-  simple filesystem + Deferred Task)
+* Handling data:
+    + export into distributed file system (for __Spark__)
+    + if based on `collection`, copy object by object
 
-Other projects like that in R:
-
-- ff: http://cran.r-project.org/web/packages/ff/index.html http://ff.r-forge.r-project.org/
-- ffbase: http://cran.r-project.org/web/packages/ffbase/index.html
-- bigmemory: http://cran.r-project.org/web/packages/bigmemory/index.html
-- depending on bigmemory: bigtabulate, biganalytics
+* Execution based on:
+    + `Rserve` (object by object)
+    + `opencpu` (object by object)
+    + `SparkR` (obj-by-obj and data pre-existing in HDFS)
 
 
+## Documenting Analysis/Rereach
+
+* Serialize a **deferred task**
+    + reference this object from `collection` or `archive`
+    + print/plot/show using `manipulate` or `Shiny`
+    + show code differences with `diff`
 
 
