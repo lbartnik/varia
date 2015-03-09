@@ -16,6 +16,9 @@ create_sample_collection <- function (
   }
   
   col <- collection(path, 'a sample collection', .create = T)
-  lapply(rnorm(size), function(x)add_object(col, x))
+  lapply(seq(size), function(i) {
+    x <- iris[sample.int(nrow(iris), 50), ]
+    add_object(col, x, .tags = as.list(table(x$Species)))
+  })
   refresh(col)
 }
