@@ -20,7 +20,7 @@ p <- package( { code ; expression } , summary, func = stats::rnorm, funb = funct
 
 # creates a list of nodes that can be used to compute/evaluate the
 # package
-nodes <- opencpu(10, 'localhost', 12345) + RServer(4, 'localhost', 54321)
+nodes <- opencpu(10, 'localhost', 12345) + RServe(4, 'localhost', 54321)
 
 # how to pass the data that is the argument for the top-level function
 # in the evaluation package?
