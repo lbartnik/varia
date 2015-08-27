@@ -5,6 +5,10 @@
 # 4. is it possible to upload package object directly to a function?
 
 
+x <- defer_opencpu('what', 'localhost:8480')
+
+
+
 
 # --- 1. find a way to send serialized object to OpenCPU --------------
 
