@@ -1,58 +1,3 @@
-#' @importFrom lazyeval lazy_dots
-#' @export
-package <- function (..., .inherit = TRUE) {
-  dots <- lazy_dots(...)
-  calling_env <- parent.frame()
-
-  # 1. there must be names, and one of the must be entry
-  # 2. there can be several classes of objects:
-  #      - code_block: { some ; code }
-  #      - func_def:   function(x)x
-  #      - name:       fun, rnorm, base::abs
-  # 3. we must turn object into lazy object first to examine their class
-  #    then we separate function names from function/code objects
-  # 4. function/code objects are examined for dependencies while function
-  #    names are just remembered as pointers to dependencies
-
-
-  # 1. lazyfile objects
-  # 2. make sure all objects have names
-  # 2. determine which are function definitions, code blocks - and which are names
-  # 3. function defs/code blocks must all have names - there can be one object without
-  #    a name and that becomes the entry point
-  # 4. determine which names refer to objects accessible from the calling environment
-  #    and add them to user objects
-
-  # this divides the input into two categories: (1) definitions of functions/code
-  # blocks and (2) function names;
-  # category (1) will be parsed for dependencies and serialized
-  #
-  # category (2) needs to be divided into (2a.) global/user functions and
-  # (2b.) library functions
-  # (2a.) is added to group (1); (2b.) is recorded in a table - package
-  # name + function name
-
-  # extract expressions and determine their classes
-  classes <- determine_classes(dots)
-
-  # extract functions that need to be serialized and make sure they are all
-  # named
-  serialized_dots <- prepare_serialized(dots, classes)
-  dependency_dots <- prepare_dependencies(dots, classes)
-
-
-  # check where do the functions belong - if they belong in a package, then they
-  # are just library dependencies and all we need to do is write down their name
-  # and their package name;
-  # if they belong in the global environment or and environment that is a
-  # descendant of the global environment - then they are function dependencies
-  # that need to be serialized
-
-
-
-  #package_(dots, calling_env, .inherit)
-}
-
 #' Determine classes of expressions.
 #'
 #' The rules are:
@@ -64,36 +9,71 @@ package <- function (..., .inherit = TRUE) {
 #'         the rest are user-defined functions that need to be serialized
 #' }
 #'
-determine_classes <- function (dots)
-{
-  classes <- vapply(dots, classify_lazy, character(1))
+#' @importFrom lazyeval lazy_dots
+#' @export
+package <- function (..., .inherit = TRUE) {
+  dots <- lazy_dots(...)
+  calling_env <- parent.frame()
 
+  # --- 1. process the user input -------------------------------------
+  #
+  # the user input are the objects to be serialized + any explicit
+  # dependencies that the user decided to provide
+
+  # determine their class of every object passed from the user and
   # check for unsupported types of objects
+  classes <- vapply(dots, classify_lazy_dot, character(1))
+
   if (any(i <- (classes == 'unsupported'))) {
-    exprs <- lapply(dots[i], `[[`, i = 'expr')
-    stop('expressions in dots are not supported: ', toString(exprs))
+    stop('expressions in dots are not supported: ', toString(dots[i]))
   }
 
-  classes
+  # (1) extract functions that need to be serialized and make
+  #     sure they are all named
+  # (2) extract explicit dependencies from the list provided by the
+  #     user
+  to_serialize <- extract_function_objects(dots, classes)
+  dependencies <- extract_explicit_dependencies(dots, classes)
+
+  # TODO detect other library and user-defined dependencies by examining
+  #      the body of each function which is to be serialized
+
+  #package_(dots, calling_env, .inherit)
 }
 
 
-prepare_serialized <- function (dots, classes)
+#' Extracts: function definitions, blocks of code, functions referred
+#' by name and present in GlobalEnvironment or one of its descendants
+#' (that is, execution environments).
+extract_function_objects <- function (dots, classes)
 {
   # put names on user symbols
-  i_usr <- (classes == 'user_symbol')
+  i_usym <- (classes == 'user_symbol')
   exprs <- lapply(dots, `[[`, i = 'expr')
-  names(dots[i_usr]) <- as.character(exprs[i_usr])
+  names(dots[i_usym]) <- as.character(exprs[i_usym])
+
+  # turn blocks of code into function definitions
+  i_code <- (classes == 'code_block')
+  dots[i_code] <- turn_blocks_into_fdefs(dots[i_code])
 
   # pick objects to be serialized
-  serialized <- dots[classes %in% c('fun_definition', 'code_block', 'user_symbol')]
-  serialized <- name_serialized(serialized)
+  i_fdef <- (classes == 'fun_definition')
 
-  # TODO turn code blocks into function
+  # make sure names are consistent
+  to_serialize <- dots[i_fdef | i_code | i_usym]
+  to_serialize <- assert_names_for_serialized(to_serialize)
 
-  # TODO evaluate all (lazy) objects to be able to process them for dependencies
+  # evaluate all (lazy) objects to process them for dependencies
+  # and then serialize
+  lazy_eval(to_serialize)
+}
 
-  serialized
+
+turn_blocks_into_fdefs <- function (code_dots) {
+  lapply(code_dots, function (lazy_dot) {
+    lazy_dot$expr <- substitute(function(.)x, list(x = lazy_dot$expr))
+    lazy_dot
+  })
 }
 
 
@@ -101,29 +81,29 @@ prepare_serialized <- function (dots, classes)
 #'
 #' By default the only one allowed unnamed object must be the
 #' entry object. There must be exactly one object named "entry".
-name_serialized <- function (serialized_dots)
+assert_names_for_serialized <- function (definition_dots)
 {
-  empty_names <- !nchar(names(serialized_dots))
-  if (sum(serialized_dots) > 1)
+  empty_names <- !nchar(names(definition_dots))
+  if (sum(definition_dots) > 1)
     stop('there can be only one unnamed object')
 
-  if (any(empty_names) && any(names(serialized_dots) == 'entry'))
+  if (any(empty_names) && any(names(definition_dots) == 'entry'))
     stop('unnamed function and "entry" function cannot be present at the same time')
 
   if (any(empty_names)) {
     warning('marking the unnamed function the "entry" function')
-    names(serialized_dots)[empty_names] <- 'entry'
+    names(definition_dots)[empty_names] <- 'entry'
   }
 
-  if (sum(names(serialized_dots) == 'entry') != 1)
+  if (sum(names(definition_dots) == 'entry') != 1)
     stop('exactly one user function must be named as "entry"')
 
-  serialized_dots
+  definition_dots
 }
 
 
 
-prepare_dependencies <- function (dots, classes)
+extract_explicit_dependencies <- function (dots, classes)
 {
   env_name <- function(f)    environmentName(environment(f))
   expr2chr <- function(lazy) as.character(lazy$expr)
@@ -145,7 +125,13 @@ prepare_dependencies <- function (dots, classes)
 }
 
 
-classify_lazy <- function (lazy_obj)
+# check where do the functions belong - if they belong in a package, then they
+# are just library dependencies and all we need to do is write down their name
+# and their package name;
+# if they belong in the global environment or and environment that is a
+# descendant of the global environment - then they are function dependencies
+# that need to be serialized
+classify_lazy_dot <- function (lazy_obj)
 {
   stopifnot(is_lazy(lazy_obj))
   expr <- lazy_obj$expr
@@ -157,6 +143,9 @@ classify_lazy <- function (lazy_obj)
   if (is.symbol(expr)) {
     # determine which symbols are in libraries and which are in session
     e <- get_containing_env(as.character(expr), lazy_obj$env)
+    # TODO it might be necessary to trace the environment's parents
+    #      if a function is accessible in an execution environment only
+    #      its ancestor will have a name - the GlobalEnv
     if (environmentName(e) %in% search()[-1]) return('library_symbol')
     return('user_symbol')
   }
@@ -211,8 +200,9 @@ get_containing_env <- function (name, env) {
 
 
 
-
-package_ <- function (dots, calling_env, .inherit) {
+# will detect only the library dependencies not the globally accessible
+# user-defined functions
+package_ <- function (dots, libraries, .detect_libs) {
   types <- get_type(dots)
   names(dots) <- get_name(dots, types)
 

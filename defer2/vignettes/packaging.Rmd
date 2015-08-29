@@ -1,0 +1,79 @@
+---
+title: "Packaging functions"
+author: "Lukasz A. Bartnik"
+date: "August 29, 2015"
+output: html_document
+---
+
+# Purpose of this document
+
+This document describes the interface of the `package()` and
+`package_()` functions. The former is designed for interactive use in
+a R session, the latter is designed for programming R scripts and
+packages.
+
+
+# Packaging functions
+
+One of the main goals of the `defer` package is to enable R users to
+easily run complex scripts/sets of functions in a remote R session.
+An important condition is to avoid complex object handling on the
+side of the user and implement an automatic dependency detection
+mechanism.
+
+The dependencies might be of two kinds:
+* dependencies on functions present in the global environment of the 
+  current R session
+* dependencies on library functions present in R packages installed
+  in the local environment
+
+The goal of the aforementioned dependency detection mechanism is to
+discover all dependencies of both kinds and store them in a R object
+that can be serialized, sent to a remote session, deserialized and
+finally run. Running the package in a remote session should produce
+the same exact results as running it locally.
+
+
+# Sample packaging invocations
+
+In order to help understand the concept of packaging, we provide as
+number of examples of various ways to build an evaluation package.
+We present both the interactive interface, that is, the `package()`
+function, as well as the programmer interface, the `package_()`
+function.
+
+
+## The interactive interface
+
+### Functions
+
+```{r eval=FALSE}
+fun <- function(x)x*x
+package(fun)
+```
+
+
+```{r eval=FALSE}
+package(function(x)x*x)
+```
+
+
+```{r eval=FALSE}
+package({ x*x })
+```
+
+
+### Functions and dependencies
+
+```{r eval=FALSE}
+package({ x*x*fun(x) }, fun = function(z)log(z, 10))
+```
+
+If the dependency discovery mechanism cannot "see" the `log10()` function,
+user can explicitely add `log10()` to the dependency list.
+
+```{r eval=FALSE}
+package({ x*x*log10(x) }, log10)
+```
+
+
