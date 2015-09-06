@@ -15,25 +15,24 @@ package <- function (..., .inherit = TRUE) {
   dots <- lazy_dots(...)
   calling_env <- parent.frame()
 
-  # --- 1. process the user input -------------------------------------
-  #
-  # the user input are the objects to be serialized + any explicit
-  # dependencies that the user decided to provide
+  # determine their class of every expression
+  class <- vapply(dots, classify_lazy_dot, character(1))
 
-  # determine their class of every object passed from the user and
-  # check for unsupported types of objects
-  classes <- vapply(dots, classify_lazy_dot, character(1))
-
-  if (any(i <- (classes == 'unsupported'))) {
+  if (any(i <- (class == 'unsupported'))) {
     stop('expressions in dots are not supported: ', toString(dots[i]))
   }
 
-  # (1) extract functions that need to be serialized and make
-  #     sure they are all named
-  # (2) extract explicit dependencies from the list provided by the
-  #     user
-  to_serialize <- extract_function_objects(dots, classes)
-  dependencies <- extract_explicit_dependencies(dots, classes)
+  # determine which symbols refer library functions
+  i_lf  <- vapply(dots[class == 'symbol'], is_library_function, logical(1))
+  dots[class == 'symbol'][i_lf] <- 'library_symbol'
+
+  # functions to be serialized are defined by this condition
+  i_fun <- class %in% c('fun_definition', 'code_block', 'symbol')
+  user_objs <- process_user_objects(dots[i_fun], class[i_fun])
+
+  # global dependencies are defined by this conditions
+  i_dep <- class %in% c('col_expr', 'library_symbol')
+  dependencies <- process_global_dependencies(dots[i_dep], class[i_dep])
 
   # TODO detect other library and user-defined dependencies by examining
   #      the body of each function which is to be serialized
@@ -42,87 +41,6 @@ package <- function (..., .inherit = TRUE) {
 }
 
 
-#' Extracts: function definitions, blocks of code, functions referred
-#' by name and present in GlobalEnvironment or one of its descendants
-#' (that is, execution environments).
-extract_function_objects <- function (dots, classes)
-{
-  # put names on user symbols
-  i_usym <- (classes == 'user_symbol')
-  exprs <- lapply(dots, `[[`, i = 'expr')
-  names(dots[i_usym]) <- as.character(exprs[i_usym])
-
-  # turn blocks of code into function definitions
-  i_code <- (classes == 'code_block')
-  dots[i_code] <- turn_blocks_into_fdefs(dots[i_code])
-
-  # pick objects to be serialized
-  i_fdef <- (classes == 'fun_definition')
-
-  # make sure names are consistent
-  to_serialize <- dots[i_fdef | i_code | i_usym]
-  to_serialize <- assert_names_for_serialized(to_serialize)
-
-  # evaluate all (lazy) objects to process them for dependencies
-  # and then serialize
-  lazy_eval(to_serialize)
-}
-
-
-turn_blocks_into_fdefs <- function (code_dots) {
-  lapply(code_dots, function (lazy_dot) {
-    lazy_dot$expr <- substitute(function(.)x, list(x = lazy_dot$expr))
-    lazy_dot
-  })
-}
-
-
-#' All objects must be named
-#'
-#' By default the only one allowed unnamed object must be the
-#' entry object. There must be exactly one object named "entry".
-assert_names_for_serialized <- function (definition_dots)
-{
-  empty_names <- !nchar(names(definition_dots))
-  if (sum(definition_dots) > 1)
-    stop('there can be only one unnamed object')
-
-  if (any(empty_names) && any(names(definition_dots) == 'entry'))
-    stop('unnamed function and "entry" function cannot be present at the same time')
-
-  if (any(empty_names)) {
-    warning('marking the unnamed function the "entry" function')
-    names(definition_dots)[empty_names] <- 'entry'
-  }
-
-  if (sum(names(definition_dots) == 'entry') != 1)
-    stop('exactly one user function must be named as "entry"')
-
-  definition_dots
-}
-
-
-
-extract_explicit_dependencies <- function (dots, classes)
-{
-  env_name <- function(f)    environmentName(environment(f))
-  expr2chr <- function(lazy) as.character(lazy$expr)
-
-  exprs <- lapply(dots, expr2chr)
-  i <- classes == 'col_expr'
-  j <- classes == 'library_symbol'
-
-  if (any(names(exprs)[i | j] != "")) {
-    stop('library functions referred by name cannot be renamed')
-  }
-
-  data.frame(
-    package = c(vapply(lazy_eval(dots[j]), env_name, character(1)),
-                vapply(exprs[i], `[[`, i = 2, character(1))),
-    fnction = c(unlist(exprs[j]),
-                vapply(exprs[i], `[[`, i = 3, character(1)))
-  )
-}
 
 
 # check where do the functions belong - if they belong in a package, then they
@@ -136,22 +54,138 @@ classify_lazy_dot <- function (lazy_obj)
   stopifnot(is_lazy(lazy_obj))
   expr <- lazy_obj$expr
 
-  if (is_colexpr(expr)) return('col_expr')
+  if (is_colexpr(expr))   return('col_expr')
   if (is_codeblock(expr)) return('code_block')
-  if (is_fundef(expr)) return('fun_definition')
-
-  if (is.symbol(expr)) {
-    # determine which symbols are in libraries and which are in session
-    e <- get_containing_env(as.character(expr), lazy_obj$env)
-    # TODO it might be necessary to trace the environment's parents
-    #      if a function is accessible in an execution environment only
-    #      its ancestor will have a name - the GlobalEnv
-    if (environmentName(e) %in% search()[-1]) return('library_symbol')
-    return('user_symbol')
-  }
+  if (is_fundef(expr))    return('fun_definition')
+  if (is.symbol(expr))    return('symbol')
 
   'unsupported'
 }
+
+is_library_function <- function(lazy_obj)
+{
+  stopifnot(is_lazy(lazy_obj))
+  e <- get_containing_env(as.character(lazy_obj$expr), lazy_obj$env)
+  environmentName(e) %in% search()[-1]
+}
+
+get_containing_env <- function (name, env) {
+  if (identical(env, emptyenv())) return(env)
+  if (exists(name, envir = env, mode = 'function', inherits = FALSE))
+    return(env)
+  Recall(name, parent.env(env))
+}
+
+turn_block_into_fdef <- function (lazy_dot) {
+  lazy_dot$expr <- substitute(function(.)x, list(x = lazy_dot$expr))
+  lazy_dot
+}
+
+#' All objects must be named
+#'
+#' By default the only one allowed unnamed object must be the
+#' entry object. There must be exactly one object named "entry".
+assert_named <- function (dots)
+{
+  empty_names <- !nchar(names(dots))
+  if (sum(empty_names) > 1)
+    stop('there can be only one unnamed object')
+
+  if (any(empty_names) && any(names(dots) == 'entry'))
+    stop('unnamed function and "entry" function cannot be present at the same time')
+
+  if (any(empty_names)) {
+    warning('marking the unnamed function the "entry" function')
+    names(dots)[empty_names] <- 'entry'
+  }
+
+  if (sum(names(dots) == 'entry') != 1)
+    stop('exactly one user function must be named as "entry"')
+
+  dots
+}
+
+
+
+
+#' Extracts: function definitions, blocks of code, functions referred
+#' by name and present in GlobalEnvironment or one of its descendants
+#' (that is, execution environments).
+#'
+#' @importFrom lazyeval lazy_eval
+process_user_objects <- function (dots, class)
+{
+  # replace blocks of code with function definitions
+  i_code <- (class == 'code_block')
+  dots[i_code] <- lapply(dots[i_code], turn_block_into_fdef)
+
+  # make sure code objects are all named
+  i_obj <- class %in% c('fun_definition', 'code_block')
+  dots[i_obj] <- assert_named(dots[i_obj])
+
+  # name global symbols
+  i_sym <- (classes == 'symbol')
+  exprs <- lapply(dots[i_sym], `[[`, i = 'expr')
+  names(dots[i_sym]) <- as.character(exprs)
+
+  lazy_eval(dots)
+}
+
+
+process_global_dependencies <- function (dots, class)
+{
+  if (any(names(dots) != "")) {
+    stop('library functions referred by name cannot be renamed')
+  }
+
+  exprs <- lapply(dots, function(lazy) as.character(lazy$expr))
+
+  # colon expressions go first
+  d1 <- data.frame(
+    package = vapply(exprs[class == 'col_expr'], `[[`, i = 2, character(1)),
+    fnction = vapply(exprs[class == 'col_expr'], `[[`, i = 3, character(1))
+  )
+
+  # function names
+  d2 <- data.frame(
+    package = vapply(lazy_eval(dots[j]), function(f) environmentName(environment(f)),
+                     character(1)),
+    fnction = unlist(exprs[j])
+  )
+
+  rbind(d1, d2)
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# will detect only the library dependencies not the globally accessible
+# user-defined functions
+package_ <- function (dots, libraries, .detect_libs) {
+  types <- get_type(dots)
+  names(dots) <- get_name(dots, types)
+
+  # only find library dependencies, do not add function objects to serialize
+}
+
+
+
+
+
+
+
+
+
 
 #' Does an expression refer to a function.
 #'
@@ -185,26 +219,4 @@ is_codeblock <- function(expr) {
 
 is_fundef <- function(x) {
   is.call(x) && identical(x[[1]], quote(`function`))
-}
-
-
-
-
-
-get_containing_env <- function (name, env) {
-  if (identical(env, emptyenv())) return(env)
-  if (exists(name, envir = env, mode = 'function', inherits = FALSE))
-    return(env)
-  get_containing_env(name, parent.env(env))
-}
-
-
-
-# will detect only the library dependencies not the globally accessible
-# user-defined functions
-package_ <- function (dots, libraries, .detect_libs) {
-  types <- get_type(dots)
-  names(dots) <- get_name(dots, types)
-
-  # only find library dependencies, do not add function objects to serialize
 }
