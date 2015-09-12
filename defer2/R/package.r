@@ -9,35 +9,29 @@
 #'         the rest are user-defined functions that need to be serialized
 #' }
 #'
-#' @importFrom lazyeval lazy_dots
+#' @importFrom lazyeval lazy_dots lazy_
 #' @export
-package <- function (..., .inherit = TRUE) {
+package <- function (entry, ..., .inherit = TRUE)
+{
   dots <- lazy_dots(...)
-  calling_env <- parent.frame()
+  if (any(names(dots) == 'entry'))
+    stop('dependencency cannot be named as "entry"', call. = FALSE)
 
-  # determine their class of every expression
-  class <- vapply(dots, classify_lazy_dot, character(1))
-
-  if (any(i <- (class == 'unsupported'))) {
-    stop('expressions in dots are not supported: ', toString(dots[i]))
-  }
-
-  # determine which symbols refer library functions
-  i_lf  <- vapply(dots[class == 'symbol'], is_library_function, logical(1))
-  dots[class == 'symbol'][i_lf] <- 'library_symbol'
+  dots$entry <- lazy_(substitute(entry), parent.frame())
+  class <- classify_lazy_dots(dots)
 
   # functions to be serialized are defined by this condition
-  i_fun <- class %in% c('fun_definition', 'code_block', 'symbol')
-  user_objs <- process_user_objects(dots[i_fun], class[i_fun])
+  # and global dependencies by its negation
+  i_fun <- class %in% c('fun_definition', 'code_block', 'user_symbol')
 
-  # global dependencies are defined by this conditions
-  i_dep <- class %in% c('col_expr', 'library_symbol')
-  dependencies <- process_global_dependencies(dots[i_dep], class[i_dep])
+  user_objects <- process_user_objects(dots[i_fun], class[i_fun])
+  dependencies <- process_global_dependencies(dots[!i_fun], class[!i_fun])
 
   # TODO detect other library and user-defined dependencies by examining
   #      the body of each function which is to be serialized
 
-  #package_(dots, calling_env, .inherit)
+  structure(list(objects = user_objects, dependencies = dependencies),
+            class = 'evaluation_package')
 }
 
 
@@ -49,24 +43,39 @@ package <- function (..., .inherit = TRUE) {
 # if they belong in the global environment or and environment that is a
 # descendant of the global environment - then they are function dependencies
 # that need to be serialized
-classify_lazy_dot <- function (lazy_obj)
+classify_lazy_dots <- function (dots)
 {
-  stopifnot(is_lazy(lazy_obj))
-  expr <- lazy_obj$expr
+  stopifnot(all(vapply(dots, is_lazy, logical(1))))
 
-  if (is_colexpr(expr))   return('col_expr')
-  if (is_codeblock(expr)) return('code_block')
-  if (is_fundef(expr))    return('fun_definition')
-  if (is.symbol(expr))    return('symbol')
+  # determine class of expression
+  class <- vapply(dots, function (lazy_obj) {
+    if (is_colexpr(lazy_obj$expr))   return('col_expr')
+    if (is_codeblock(lazy_obj$expr)) return('code_block')
+    if (is_fundef(lazy_obj$expr))    return('fun_definition')
+    if (is.symbol(lazy_obj$expr))    return('symbol')
+    'unsupported'
+  }, character(1))
 
-  'unsupported'
+  # print expression which are not supported
+  if (any(i <- (class == 'unsupported'))) {
+    stop('expressions in dots are not supported: ', toString(dots[i]),
+         call. = FALSE)
+  }
+
+  # determine which symbols refer to library functions
+  i_lf  <- vapply(dots[class == 'symbol'], is_library_function, logical(1))
+  class[class == 'symbol'][i_lf]  <- 'library_symbol'
+  class[class == 'symbol'][!i_lf] <- 'user_symbol'
+
+  class
 }
 
 is_library_function <- function(lazy_obj)
 {
   stopifnot(is_lazy(lazy_obj))
   e <- get_containing_env(as.character(lazy_obj$expr), lazy_obj$env)
-  environmentName(e) %in% search()[-1]
+
+  environmentName(e) %in% search()[-1] || identical(e, baseenv())
 }
 
 get_containing_env <- function (name, env) {
@@ -75,38 +84,6 @@ get_containing_env <- function (name, env) {
     return(env)
   Recall(name, parent.env(env))
 }
-
-turn_block_into_fdef <- function (lazy_dot) {
-  lazy_dot$expr <- substitute(function(.)x, list(x = lazy_dot$expr))
-  lazy_dot
-}
-
-#' All objects must be named
-#'
-#' By default the only one allowed unnamed object must be the
-#' entry object. There must be exactly one object named "entry".
-assert_named <- function (dots)
-{
-  empty_names <- !nchar(names(dots))
-  if (sum(empty_names) > 1)
-    stop('there can be only one unnamed object')
-
-  if (any(empty_names) && any(names(dots) == 'entry'))
-    stop('unnamed function and "entry" function cannot be present at the same time')
-
-  if (any(empty_names)) {
-    warning('marking the unnamed function the "entry" function')
-    names(dots)[empty_names] <- 'entry'
-  }
-
-  if (sum(names(dots) == 'entry') != 1)
-    stop('exactly one user function must be named as "entry"')
-
-  dots
-}
-
-
-
 
 #' Extracts: function definitions, blocks of code, functions referred
 #' by name and present in GlobalEnvironment or one of its descendants
@@ -121,17 +98,24 @@ process_user_objects <- function (dots, class)
 
   # make sure code objects are all named
   i_obj <- class %in% c('fun_definition', 'code_block')
-  dots[i_obj] <- assert_named(dots[i_obj])
+  if (any(names(dots) == ""))
+    stop('all functions and code blocks must be named', call. = FALSE)
 
   # name global symbols
-  i_sym <- (classes == 'symbol')
+  i_sym <- (class == 'symbol')
   exprs <- lapply(dots[i_sym], `[[`, i = 'expr')
   names(dots[i_sym]) <- as.character(exprs)
 
-  lazy_eval(dots)
+  lapply(dots, lazy_eval)
+}
+
+turn_block_into_fdef <- function (lazy_dot) {
+  lazy_dot$expr <- substitute(function(.)x, list(x = lazy_dot$expr))
+  lazy_dot
 }
 
 
+#' @importFrom lazyeval lazy_eval
 process_global_dependencies <- function (dots, class)
 {
   if (any(names(dots) != "")) {
@@ -139,18 +123,19 @@ process_global_dependencies <- function (dots, class)
   }
 
   exprs <- lapply(dots, function(lazy) as.character(lazy$expr))
+  i <- (class == 'col_expr')
 
   # colon expressions go first
   d1 <- data.frame(
-    package = vapply(exprs[class == 'col_expr'], `[[`, i = 2, character(1)),
-    fnction = vapply(exprs[class == 'col_expr'], `[[`, i = 3, character(1))
+    package = vapply(exprs[i], `[[`, i = 2, character(1)),
+    fnction = vapply(exprs[i], `[[`, i = 3, character(1))
   )
 
   # function names
   d2 <- data.frame(
-    package = vapply(lazy_eval(dots[j]), function(f) environmentName(environment(f)),
+    package = vapply(lapply(dots[!i], lazy_eval), function(f) environmentName(environment(f)),
                      character(1)),
-    fnction = unlist(exprs[j])
+    fnction = unlist(exprs[!i])
   )
 
   rbind(d1, d2)
@@ -212,7 +197,7 @@ is_colexpr <- function(expr) {
 #' Check whether expression is enclosed in curly braces.
 #'
 #' @param  expr An expression to be tested.
-#' @return logical - TRUE if expr is enclosed in `{`, FALSE otherwise.
+#' @return logical - TRUE if expr is enclosed in \code{\{}, FALSE otherwise.
 is_codeblock <- function(expr) {
   is.call(expr) && identical(expr[[1L]], quote(`{`))
 }

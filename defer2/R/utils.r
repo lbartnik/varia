@@ -5,3 +5,7 @@ is_error <- function (x) {
 is_package <- function (x) {
   inherits(x, 'package')
 }
+
+is_lazy <- function (x) {
+  inherits(x, 'lazy')
+}
