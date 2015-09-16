@@ -14,11 +14,18 @@
 package <- function (entry, ..., .inherit = TRUE)
 {
   dots <- lazy_dots(...)
-  if (any(names(dots) == 'entry'))
-    stop('dependencency cannot be named as "entry"', call. = FALSE)
+  if (any(names(dots) == 'entry')) {
+    stop('dependencency cannot have name "entry"', call. = FALSE)
+  }
 
   dots$entry <- lazy_(substitute(entry), parent.frame())
   class <- classify_lazy_dots(dots)
+
+  # print expression which are not supported
+  if (any(i <- (class == 'unsupported'))) {
+    stop('expressions in dots are not supported: ', toString(dots[i]),
+         call. = FALSE)
+  }
 
   # functions to be serialized are defined by this condition
   # and global dependencies by its negation
@@ -56,12 +63,6 @@ classify_lazy_dots <- function (dots)
     'unsupported'
   }, character(1))
 
-  # print expression which are not supported
-  if (any(i <- (class == 'unsupported'))) {
-    stop('expressions in dots are not supported: ', toString(dots[i]),
-         call. = FALSE)
-  }
-
   # determine which symbols refer to library functions
   i_lf  <- vapply(dots[class == 'symbol'], is_library_function, logical(1))
   class[class == 'symbol'][i_lf]  <- 'library_symbol'
@@ -69,6 +70,7 @@ classify_lazy_dots <- function (dots)
 
   class
 }
+
 
 is_library_function <- function(lazy_obj)
 {
@@ -78,12 +80,15 @@ is_library_function <- function(lazy_obj)
   environmentName(e) %in% search()[-1] || identical(e, baseenv())
 }
 
-get_containing_env <- function (name, env) {
+
+get_containing_env <- function (name, env)
+{
   if (identical(env, emptyenv())) return(env)
   if (exists(name, envir = env, mode = 'function', inherits = FALSE))
     return(env)
   Recall(name, parent.env(env))
 }
+
 
 #' Extracts: function definitions, blocks of code, functions referred
 #' by name and present in GlobalEnvironment or one of its descendants
@@ -109,7 +114,9 @@ process_user_objects <- function (dots, class)
   lapply(dots, lazy_eval)
 }
 
-turn_block_into_fdef <- function (lazy_dot) {
+
+turn_block_into_fdef <- function (lazy_dot)
+{
   lazy_dot$expr <- substitute(function(.)x, list(x = lazy_dot$expr))
   lazy_dot
 }
@@ -119,7 +126,7 @@ turn_block_into_fdef <- function (lazy_dot) {
 process_global_dependencies <- function (dots, class)
 {
   if (any(names(dots) != "")) {
-    stop('library functions referred by name cannot be renamed')
+    stop('library functions cannot be renamed', call. = FALSE)
   }
 
   exprs <- lapply(dots, function(lazy) as.character(lazy$expr))
