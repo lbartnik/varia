@@ -34,6 +34,7 @@ package <- function (entry, ..., .inherit = TRUE)
   user_objects <- process_user_objects(dots[i_fun], class[i_fun])
   dependencies <- process_global_dependencies(dots[!i_fun], class[!i_fun])
 
+
   # TODO detect other library and user-defined dependencies by examining
   #      the body of each function which is to be serialized
 
@@ -76,10 +77,13 @@ is_library_function <- function(lazy_obj)
 {
   stopifnot(is_lazy(lazy_obj))
   e <- get_containing_env(as.character(lazy_obj$expr), lazy_obj$env)
-
-  environmentName(e) %in% search()[-1] || identical(e, baseenv())
+  is_library_env(e)
 }
 
+is_library_env <- function (env)
+{
+  environmentName(env) %in% search()[-1] || identical(env, baseenv())
+}
 
 get_containing_env <- function (name, env)
 {
@@ -149,7 +153,28 @@ process_global_dependencies <- function (dots, class)
 }
 
 
+#' Recursively extract all functions referred to in any function in
+#' \code{funs}
+#'
+#' @param funs A named \code{list} of \code{function} objects.
+extract_dependencies <- function (funs)
+{
+  to_process <- funs
+  processed  <- list()
+  while (length(funs)) {
+    fun <- funs[1]; funs <- funs[-1]
+    referred <- extract_calls(fun) # return list of expressions - either fun names or pkg::fun
+    islib    <- vapply(referred , function (expr) {
+      dep <- eval(expr, envir = environment(fun)) # evaluating a symbol in function's env will return the right object
+      is_library_env(environment(dep)) # is the dependency found in a library env?
+    }, logical(1))
 
+    # referred <- referred[!islib]
+    #   append library functions to to_process
+    #   find package names for all other functions and add the to library deps
+    # move fun to processed
+  }
+}
 
 
 
